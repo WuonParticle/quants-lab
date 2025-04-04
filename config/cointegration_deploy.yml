@@ -4,7 +4,7 @@ tasks:
     task_class: tasks.deployment.implementation.stat_arb_deployment_task.StatArbDeploymentTask
     frequency_hours: 999999
     config:
-      connector_name: binance_perpetual
+      connector_name: okx
       mongo_uri: !ENV ${MONGO_URI}
       backend_api_server: localhost
       min_config_timestamp: 129600
