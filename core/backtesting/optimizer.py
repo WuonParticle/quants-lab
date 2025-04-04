@@ -110,6 +110,7 @@ class StrategyOptimizer:
         self.root_path = root_path
         self._storage_name = storage_name if storage_name else self.get_storage_name(engine="sqlite", root_path=root_path)
         self.dashboard_process = None
+        self._custom_objective = None
 
     @classmethod
     def get_storage_name(cls, engine, **kwargs):
@@ -322,6 +323,31 @@ class StrategyOptimizer:
             # Report the result back to the study
             study.tell(trial, value)
 
+    def set_custom_objective(self, objective_function):
+        """
+        Set a custom objective function for optimization.
+        
+        Args:
+            objective_function: A callable that takes (trial, results) and returns a float 
+                              representing the objective value to optimize.
+        """
+        self._custom_objective = objective_function
+
+    def get_study_best_trial(self, study_name: str):
+        """
+        Get the best trial for a given study name.
+        
+        Args:
+            study_name (str): The name of the study.
+            
+        Returns:
+            optuna.Trial: The best trial from the study.
+        """
+        study = self.get_study(study_name)
+        if study and len(study.trials) > 0:
+            return study.best_trial
+        return None
+
     async def _async_objective(self, trial: optuna.Trial, config_generator: Type[BaseStrategyConfigGenerator]) -> float:
         """
         The asynchronous objective function for a given trial.
@@ -355,7 +381,11 @@ class StrategyOptimizer:
             executors_df.drop(columns=["config"], inplace=True)
             trial.set_user_attr("executors", executors_df.to_json())
 
-            # Return the value you want to optimize
+            # Use custom objective function if provided, otherwise use default
+            if self._custom_objective:
+                return self._custom_objective(trial, strategy_analysis)
+            
+            # Default objective: sharpe ratio
             return strategy_analysis["sharpe_ratio"]
         except Exception as e:
             print(f"An error occurred during optimization: {str(e)}")
