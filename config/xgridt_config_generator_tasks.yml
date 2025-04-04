@@ -1,0 +1,24 @@
+# XGridT Configuration Generator Task Configuration
+---
+task_runner:
+  name: "quants-lab-task"
+  tasks:
+    - name: "XGridTConfigGenerator"
+      module: "examples.run_xgridt_taskrunner"
+      class: "main"
+      frequency: 86400  # 24 hours in seconds
+      params:
+        output_dir: "/app/configs/xgridt"
+        trading_pairs: 
+          - "ADA-USDT"
+          - "BTC-USDT" 
+          - "ETH-USDT"
+          - "SOL-USDT"
+          - "XRP-USDT"
+          - "DOT-USDT"
+          - "AVAX-USDT"
+          - "LINK-USDT"
+          - "MATIC-USDT"
+          - "DOGE-USDT"
+        fee_pct: 0.1
+        n_trials: 100 
