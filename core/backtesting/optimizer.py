@@ -249,19 +249,24 @@ class StrategyOptimizer:
             config_generator (Type[BaseStrategyConfigGenerator]): A configuration generator class instance.
             n_trials (int): Number of trials to run for optimization.
         """
-        for _ in range(n_trials):
+        for trial_num in range(n_trials):
+            logger.info(f"Starting {study.study_name} trial {trial_num+1}/{n_trials}")
             trial = study.ask()
 
             try:
                 # Run the async objective function and get the result
                 value = await self._async_objective(trial, config_generator)
+                logger.info(f"Trial {trial_num+1} completed with value: {value}")
 
                 # Report the result back to the study
                 study.tell(trial, value)
 
             except Exception as e:
-                print(f"Error in _optimize_async: {str(e)}")
+                logger.error(f"Error in trial {trial_num+1}: {str(e)}")
+                traceback.print_exc()
                 study.tell(trial, state=optuna.trial.TrialState.FAIL)
+        
+        logger.info(f"{study.study_name} Optimization completed after {n_trials} trials")
 
     async def _optimize_async_custom_configs(self, study: optuna.Study,
                                              config_generator: Type[BaseStrategyConfigGenerator]):
@@ -362,7 +367,6 @@ class StrategyOptimizer:
         try:
             # Generate configuration using the config generator
             backtesting_config = await config_generator.generate_config(trial)
-
             # Await the backtesting result
             backtesting_result = await self._backtesting_engine.run_backtesting(
                 config=backtesting_config.config,
@@ -388,7 +392,7 @@ class StrategyOptimizer:
             # Default objective: sharpe ratio
             return strategy_analysis["sharpe_ratio"]
         except Exception as e:
-            print(f"An error occurred during optimization: {str(e)}")
+            logger.error(f"Error in trial {trial.number}: {str(e)}")
             traceback.print_exc()
             return float('-inf')  # Return a very low value to indicate failure
 
