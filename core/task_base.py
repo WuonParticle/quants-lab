@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 from typing import Any, Dict
 import logging
+import traceback
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -27,7 +28,8 @@ class BaseTask(ABC):
                     self.last_run = now
                     await self.execute()
                 except Exception as e:
-                    logger.info(f" Error executing task {self.name}: {e}")
+                    logger.error(f"Error executing task {self.name}: {e}")
+                    logger.error(f"Full traceback: {traceback.format_exc()}")
             await asyncio.sleep(1)  # Check every second
 
 
