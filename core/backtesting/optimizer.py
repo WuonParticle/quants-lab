@@ -1,8 +1,13 @@
 import datetime
+from decimal import Decimal
 import logging
+import math
 import os.path
+from pathlib import Path
 import subprocess
+import time
 import traceback
+import asyncio
 from abc import ABC, abstractmethod
 from typing import List, Optional, Type, Dict
 
@@ -212,7 +217,7 @@ class StrategyOptimizer:
         )
 
     async def optimize(self, study_name: str, config_generator: Type[BaseStrategyConfigGenerator], n_trials: int = 100,
-                       load_if_exists: bool = True):
+                       load_if_exists: bool = True, num_parallel_trials: int = 1):
         """
         Run the optimization process asynchronously.
 
@@ -221,10 +226,11 @@ class StrategyOptimizer:
             config_generator (Type[BaseStrategyConfigGenerator]): A configuration generator class instance.
             n_trials (int): Number of trials to run for optimization.
             load_if_exists (bool): Whether to load an existing study if available.
+            num_parallel_trials (int): Number of trials being run in parallel. Just helps with preventing running all trials if some are failing.
         """
         study = self._create_study(study_name, load_if_exists=load_if_exists)
-        logger.info("About to start optimizing...")
-        await self._optimize_async(study, config_generator, n_trials=n_trials)
+        logger.info(f"About to start optimizing {study_name} with max {num_parallel_trials} parallel trials...")
+        await self._optimize_async(study, config_generator, n_trials=n_trials, num_parallel_trials=num_parallel_trials)
 
     async def optimize_custom_configs(self, study_name: str, config_generator: Type[BaseStrategyConfigGenerator],
                                       load_if_exists: bool = True):
@@ -240,33 +246,34 @@ class StrategyOptimizer:
         await self._optimize_async_custom_configs(study, config_generator)
 
     async def _optimize_async(self, study: optuna.Study, config_generator: Type[BaseStrategyConfigGenerator],
-                              n_trials: int):
-        """
-        Asynchronously optimize using the provided study and configuration generator.
+                              n_trials: int, num_parallel_trials: int = 1):
 
-        Args:
-            study (optuna.Study): The study to use for optimization.
-            config_generator (Type[BaseStrategyConfigGenerator]): A configuration generator class instance.
-            n_trials (int): Number of trials to run for optimization.
-        """
-        for trial_num in range(n_trials):
-            logger.info(f"Starting {study.study_name} trial {trial_num+1}/{n_trials}")
+        trial_attempts = 0
+        num_completed_trials = len(study.get_trials(deepcopy=False, states=[optuna.trial.TrialState.COMPLETE]))
+        # Only attempt 1 more trial than responsible for to avoid looping if failing
+        while (num_completed_trials < n_trials and trial_attempts < math.ceil((n_trials + 1) / num_parallel_trials)):
+            start_time = time.perf_counter()
             trial = study.ask()
-
+            logger.info(f"Starting {study.study_name} trial {trial.number}/{n_trials}")
+            trial_attempts += 1
             try:
                 # Run the async objective function and get the result
                 value = await self._async_objective(trial, config_generator)
-                logger.info(f"Trial {trial_num+1} completed with value: {value}")
+                duration = time.perf_counter() - start_time
+                logger.info(f"Trial {trial.number} completed with value: {value} in {duration} seconds")
 
                 # Report the result back to the study
                 study.tell(trial, value)
 
             except Exception as e:
-                logger.error(f"Error in trial {trial_num+1}: {str(e)}")
+                logger.error(f"Error in trial {trial.number}: {str(e)}")
                 traceback.print_exc()
                 study.tell(trial, state=optuna.trial.TrialState.FAIL)
+            finally:
+                num_completed_trials = len(study.get_trials(deepcopy=False, states=[optuna.trial.TrialState.COMPLETE]))
         
-        logger.info(f"{study.study_name} Optimization completed after {n_trials} trials")
+        logger.info(f"{study.study_name} Optimization completed after {trial_attempts} trials")
+
 
     async def _optimize_async_custom_configs(self, study: optuna.Study,
                                              config_generator: Type[BaseStrategyConfigGenerator]):
