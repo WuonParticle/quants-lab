@@ -1,8 +1,13 @@
 import datetime
+from decimal import Decimal
 import logging
+import math
 import os.path
+from pathlib import Path
 import subprocess
+import time
 import traceback
+import asyncio
 from abc import ABC, abstractmethod
 from typing import List, Optional, Type, Dict
 
@@ -202,7 +207,6 @@ class StrategyOptimizer:
         Returns:
             optuna.Study: The created or loaded study.
         """
-        logger.info("About to create a study...")
         return optuna.create_study(
             direction=direction,
             study_name=study_name,
@@ -221,9 +225,10 @@ class StrategyOptimizer:
             config_generator (Type[BaseStrategyConfigGenerator]): A configuration generator class instance.
             n_trials (int): Number of trials to run for optimization.
             load_if_exists (bool): Whether to load an existing study if available.
+            num_parallel_trials (int): Number of trials being run in parallel. Just helps with preventing running all trials if some are failing.
         """
         study = self._create_study(study_name, load_if_exists=load_if_exists)
-        logger.info("About to start optimizing...")
+        logger.info(f"About to start optimizing {study_name} with {n_trials} trials.")
         await self._optimize_async(study, config_generator, n_trials=n_trials)
 
     async def optimize_custom_configs(self, study_name: str, config_generator: Type[BaseStrategyConfigGenerator],
@@ -241,32 +246,33 @@ class StrategyOptimizer:
 
     async def _optimize_async(self, study: optuna.Study, config_generator: Type[BaseStrategyConfigGenerator],
                               n_trials: int):
-        """
-        Asynchronously optimize using the provided study and configuration generator.
 
-        Args:
-            study (optuna.Study): The study to use for optimization.
-            config_generator (Type[BaseStrategyConfigGenerator]): A configuration generator class instance.
-            n_trials (int): Number of trials to run for optimization.
-        """
-        for trial_num in range(n_trials):
-            logger.info(f"Starting {study.study_name} trial {trial_num+1}/{n_trials}")
+        trial_attempts = 0
+        num_completed_trials = len(study.get_trials(deepcopy=False, states=[optuna.trial.TrialState.COMPLETE]))
+        # Only attempt 1 more trial than responsible for to avoid looping if failing
+        while (num_completed_trials < n_trials and trial_attempts < math.ceil((n_trials + 1))):
+            start_time = time.perf_counter()
             trial = study.ask()
-
+            logger.info(f"Starting {study.study_name} trial {trial.number}/{n_trials}")
+            trial_attempts += 1
             try:
                 # Run the async objective function and get the result
                 value = await self._async_objective(trial, config_generator)
-                logger.info(f"Trial {trial_num+1} completed with value: {value}")
+                duration = time.perf_counter() - start_time
+                logger.info(f"Trial {trial.number} completed with value: {value} in {duration} seconds")
 
                 # Report the result back to the study
                 study.tell(trial, value)
 
             except Exception as e:
-                logger.error(f"Error in trial {trial_num+1}: {str(e)}")
+                logger.error(f"Error in trial {trial.number}: {str(e)}")
                 traceback.print_exc()
                 study.tell(trial, state=optuna.trial.TrialState.FAIL)
+            finally:
+                num_completed_trials = len(study.get_trials(deepcopy=False, states=[optuna.trial.TrialState.COMPLETE]))
         
-        logger.info(f"{study.study_name} Optimization completed after {n_trials} trials")
+        logger.info(f"{study.study_name} study completed after {trial_attempts} trials")
+
 
     async def _optimize_async_custom_configs(self, study: optuna.Study,
                                              config_generator: Type[BaseStrategyConfigGenerator]):
@@ -353,6 +359,63 @@ class StrategyOptimizer:
             return study.best_trial
         return None
 
+    async def save_best_config_to_yaml(self, study_name: str, output_path: str, config_generator: Type[BaseStrategyConfigGenerator]):
+        """
+        Save the best configuration from a study to a YAML file.
+        
+        Args:
+            study_name (str): The name of the study to extract best parameters from.
+            output_path (str): The file path where to save the YAML file.
+            config_generator: The configuration generator instance that contains the logic to generate configs.
+        
+        Returns:
+            bool: True if the configuration was saved successfully, False otherwise.
+        """
+        try:
+            import yaml
+            
+            # Get the best trial from the study
+            best_trial = self.get_study_best_trial(study_name)
+            if not best_trial:
+                logger.warning(f"No trials found for study {study_name}")
+                return False
+                
+            best_params = best_trial.params
+            
+            # Generate configuration using the config generator and best parameters
+                # Create a new trial with the best parameters
+            
+            backtesting_config = await config_generator.generate_config(self.get_study_best_trial(study_name))
+            config = backtesting_config.config.dict()
+            
+            # Generate a unique ID
+            trading_pair = config.get("trading_pair", "unknown")
+            trading_pair_id = trading_pair.replace("-", "_")
+            config_id = f"{config.get('controller_name', 'strategy')}_{trading_pair_id}_{study_name}"
+            config["id"] = config_id
+            
+            # Remove performance metrics if present
+            if "performance" in config:
+                del config["performance"]
+            
+            # Ensure the output directory exists
+            os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+            
+            # Save to YAML file
+            with open(output_path, "w") as f:
+                def decimal_representer(dumper, data):
+                    return dumper.represent_float(float(data))
+                yaml.add_representer(Decimal, decimal_representer)
+                yaml.dump(config, f, default_flow_style=False)
+                
+            logger.info(f"Saved configuration to {output_path}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error saving configuration: {str(e)}")
+            logger.error(traceback.format_exc())
+            return False
+
     async def _async_objective(self, trial: optuna.Trial, config_generator: Type[BaseStrategyConfigGenerator]) -> float:
         """
         The asynchronous objective function for a given trial.
@@ -412,3 +475,75 @@ class StrategyOptimizer:
             self.dashboard_process = None  # Reset process handle
         else:
             print("Dashboard is not running or already terminated.")
+            
+    async def repeat_trial(self, study_name: str, trial_number: int, 
+                         config_generator: Type[BaseStrategyConfigGenerator]):
+        """
+        Repeat a specific trial multiple times for debugging purposes.
+        
+        This is useful when a trial returns inconsistent or invalid results (like Inf values)
+        and you want to debug the issue by running the same parameters multiple times.
+        
+        Args:
+            study_name (str): The name of the study containing the trial.
+            trial_number (int): The trial number to repeat.
+            config_generator (Type[BaseStrategyConfigGenerator]): Configuration generator for the trial.
+            
+        Returns:
+            list: A list containing the results of each trial repetition.
+        """
+        study = self.get_study(study_name)
+        if not study:
+            logger.error(f"Study {study_name} not found")
+            return None
+            
+        target_trial = next((trial for trial in study.trials if trial.number == trial_number), None)
+                
+        if not target_trial:
+            logger.error(f"Trial {trial_number} not found in study {study_name}")
+            return None
+            
+        # Create a dummy trial with the same parameters for testing
+        params = target_trial.params
+        logger.info(f"Repeating trial {trial_number} with parameters: {params}")
+        
+        results = []
+        try:
+            
+            config = await config_generator.generate_config(target_trial)
+            # Run the objective function for this trial
+            backtesting_result = await self._backtesting_engine.run_backtesting(
+                config=config.config,
+                start=config.start,
+                end=config.end,
+                backtesting_resolution=self.resolution,
+            )
+            strategy_analysis = backtesting_result.results
+            
+            # Use custom objective function if provided, otherwise use default
+            if self._custom_objective:
+                value = self._custom_objective(target_trial, strategy_analysis)
+            else:
+                # Default objective: sharpe ratio
+                value = strategy_analysis["sharpe_ratio"]
+                
+            result_entry = {
+                'attempt': i + 1,
+                'value': value,
+                'is_finite': math.isfinite(value),
+                'results': strategy_analysis
+            }
+            
+            results.append(result_entry)
+            
+            logger.info(f"Debug trial returned value: {value} (finite: {math.isfinite(value)})")
+            return backtesting_result
+            
+        except Exception as e:
+            logger.error(f"Error in debug trial {i+1}: {str(e)}")
+            traceback.print_exc()
+            results.append({
+                'attempt': i + 1,
+                'error': str(e),
+                'traceback': traceback.format_exc()
+            })
