@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from hummingbot.strategy_v2.executors.position_executor.data_types import TrailingStop
 from hummingbot.strategy_v2.utils.distributions import Distributions
 
+from core.data_sources import CLOBDataSource
 from controllers.directional_trading.xgridt import XGridTControllerConfig
 from core.backtesting.optimizer import StrategyOptimizer, BacktestingConfig, BaseStrategyConfigGenerator
 from core.task_base import BaseTask
@@ -74,7 +75,7 @@ class XGridTConfigGenerator(BaseStrategyConfigGenerator):
         return BacktestingConfig(config=config, start=self.start, end=self.end)
 
 
-class XGridTBacktestingTask(BaseTask):
+class XGridTBacktestingTask2(BaseTask):
     async def execute(self):
         start_time = time.time()
         logger.info(f"Starting XGridT backtesting task at {datetime.datetime.now()}")
@@ -97,11 +98,21 @@ class XGridTBacktestingTask(BaseTask):
         connector_name = self.config.get("connector_name")
         logger.info(f"Processing {len(selected_pairs)} trading pairs for connector {connector_name}")
         
+        # Validate trading pairs against connector's trading rules
+        clob = CLOBDataSource()
+        trading_rules = await clob.get_trading_rules(connector_name)
+        valid_pairs = [pair for pair in selected_pairs if pair in trading_rules.get_all_trading_pairs()]
+        
+        if len(valid_pairs) < len(selected_pairs):
+            logger.warning(f"Filtered out {len(selected_pairs) - len(valid_pairs)} invalid trading pairs")
+            logger.warning(f"Original pairs: {selected_pairs}")
+            logger.warning(f"Valid pairs: {valid_pairs}")
+        
         intervals = self.config.get("intervals", ["1m"])
         
-        for i, trading_pair in enumerate(selected_pairs):
+        for i, trading_pair in enumerate(valid_pairs):
             pair_start_time = time.time()
-            logger.info(f"[{i+1}/{len(selected_pairs)}] Processing {trading_pair}")
+            logger.info(f"[{i+1}/{len(valid_pairs)}] Processing {trading_pair}")
             
             end_date = time.time() - self.config["end_time_buffer_hours"] * 3600
             start_date = end_date - self.config["lookback_days"] * 24 * 60 * 60
@@ -119,8 +130,9 @@ class XGridTBacktestingTask(BaseTask):
             )
             
             candles_start_time = time.time()
-            
-            today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+            # TODO: remove date from trial and custom name
+            #  TODO: make study have maximum trial count so not required to have 1 trial every time. 
+            today_str = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
             try:
                 # Use the new TimescaleDB loading method instead of local cache
                 candles_loaded = await optimizer._backtesting_engine.load_candles_cache_for_connector_pair_from_timescale(
@@ -148,7 +160,7 @@ class XGridTBacktestingTask(BaseTask):
                     study_name=f"xgridt_{today_str}_{trading_pair}",
                     config_generator=config_generator, 
                     n_trials=self.config["n_trials"],
-                    max_parallel_trials=self.config.get("max_parallel_trials", 4)
+                    num_parallel_trials=self.config.get("max_parallel_trials", 4)
                 )
                 
                 optimize_duration = time.time() - optimize_start_time
@@ -161,9 +173,10 @@ class XGridTBacktestingTask(BaseTask):
                 config_file = os.path.join(configs_dir, f"xgridt_{today_str}_{trading_pair}_best.yml")
                 
                 # Direct call to optimizer's method without template
-                optimizer.save_best_config_to_yaml(
+                await optimizer.save_best_config_to_yaml(
                     study_name=f"xgridt_{today_str}_{trading_pair}",
-                    output_path=str(config_file)
+                    output_path=str(config_file),
+                    config_generator=config_generator
                 )
             
             except Exception as e:
