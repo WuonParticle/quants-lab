@@ -142,6 +142,35 @@ class StrategyOptimizer:
         """
         self._backtesting_engine.load_candles_cache_by_connector_pair(connector_name, trading_pair, root_path=self.root_path)
 
+    async def load_candles_cache_for_connector_pair_from_timescale(self, connector_name: str, trading_pair: str, 
+                                                                  intervals: list = None, start_time: int = None, 
+                                                                  end_time: int = None):
+        """
+        Load candles directly from TimescaleDB for a specific connector and trading pair.
+
+        Args:
+            connector_name (str): Name of the connector
+            trading_pair (str): The trading pair to load candles for
+            intervals (list, optional): List of intervals to load (e.g., ["1m", "5m", "15m", "1h"])
+            start_time (int, optional): Start timestamp for data retrieval
+            end_time (int, optional): End timestamp for data retrieval
+
+        Returns:
+            bool: True if any candles were loaded, False otherwise
+        """
+        if not self._db_client:
+            logger.error("TimescaleDB client not initialized. Cannot load candles from database.")
+            return False
+            
+        return await self._backtesting_engine.load_candles_cache_for_connector_pair_from_timescale(
+            connector_name=connector_name,
+            trading_pair=trading_pair,
+            intervals=intervals,
+            start_time=start_time,
+            end_time=end_time,
+            timescale_client=self._db_client
+        )
+
     def get_all_study_names(self):
         """
         Get all the study names available in the database.
