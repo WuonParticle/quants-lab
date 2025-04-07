@@ -1,12 +1,14 @@
 import logging
 import os
 from typing import Dict, Optional
+import traceback
 
 import pandas as pd
 
 from core.data_structures.backtesting_result import BacktestingResult
 from hummingbot.strategy_v2.backtesting.backtesting_engine_base import BacktestingEngineBase
 from hummingbot.strategy_v2.controllers import ControllerConfigBase
+from core.services.timescale_client import TimescaleClient
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -63,6 +65,78 @@ class BacktestingEngine:
                             f"{connector_name}_{trading_pair}_{interval}"] = candles
                 except Exception as e:
                     logger.error(f"Error loading {file}: {e}")
+
+    async def load_candles_cache_for_connector_pair_from_timescale(self, connector_name: str, trading_pair: str, intervals: list = None, start_time: int = None, end_time: int = None, timescale_client: TimescaleClient = None):
+        """
+        Load candles directly from TimescaleDB for a specific connector and trading pair.
+        
+        Args:
+            connector_name: Name of the connector
+            trading_pair: The trading pair to load candles for
+            root_path: Root path for storing cache files (unused)
+            intervals: List of intervals to load (e.g., ["1m", "5m", "15m", "1h"])
+            lookback_days: Number of days to look back for data
+            timescale_config: TimescaleDB configuration dictionary with host, port, user, password, db_name
+            
+        Returns:
+            bool: True if any candles were loaded, False otherwise
+        """
+        if not intervals:
+            intervals = ["1m", "5m", "15m", "1h", "4h", "1d"]
+            
+        try:
+            # Connect to database
+            await timescale_client.connect()
+            
+            loaded_any = False
+            
+            # Process each interval
+            for interval in intervals:
+                try:
+                    
+                    # Get candles from database
+                    candles = await timescale_client.get_candles(
+                        connector_name=connector_name,
+                        trading_pair=trading_pair,
+                        interval=interval,
+                        start_time=start_time,
+                        end_time=end_time
+                    )
+                    
+                    if candles.data.empty:
+                        logger.warning(f"No {interval} candles found in TimescaleDB for {connector_name}_{trading_pair}")
+                        continue
+                    
+                    # Format candles for backtesting
+                    candles_df = candles.data.copy()
+                    candles_df.index = pd.to_datetime(candles_df.timestamp, unit='s')
+                    candles_df.index.name = None
+                    
+                    # Process numeric columns
+                    columns = ['open', 'high', 'low', 'close', 'volume', 'quote_asset_volume',
+                              'n_trades', 'taker_buy_base_volume', 'taker_buy_quote_volume']
+                    for column in columns:
+                        if column in candles_df.columns:
+                            candles_df[column] = pd.to_numeric(candles_df[column])
+                    
+                    feed_key = f"{connector_name}_{trading_pair}_{interval}"
+                    self._bt_engine.backtesting_data_provider.candles_feeds[feed_key] = candles_df
+                    
+                    logger.info(f"Loaded {len(candles_df)} {interval} candles for {connector_name}_{trading_pair}")
+                    loaded_any = True
+                except Exception as e:
+                    logger.error(f"Error loading {interval} candles for {connector_name}_{trading_pair}: {e}")
+                    logger.error(traceback.format_exc())
+                    
+            # Close database connection
+            await timescale_client.close()
+            
+            return loaded_any
+            
+        except Exception as e:
+            logger.error(f"Error loading candles from TimescaleDB: {e}")
+            logger.error(traceback.format_exc())
+            return False
 
     def get_controller_config_instance_from_dict(self, config: Dict):
         return BacktestingEngineBase.get_controller_config_instance_from_dict(
