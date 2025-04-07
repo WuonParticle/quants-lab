@@ -1,0 +1,27 @@
+# PMM Dynamic Backtesting Task Configuration
+---
+tasks:
+  PMM_Dynamic_Backtesting:
+    task_class: "tasks.backtesting.pmm_dynamic_backtesting_task.PMMDynamicBacktestingTask"
+    frequency_hours: 24  # Run once per day
+    name: "PMM Dynamic Backtesting"
+    config:
+      # Backtesting parameters
+      connector_name: "okx"
+      interval: "1m"  # Default candle interval for PMM Dynamic
+      backtesting_interval: "1s"  
+      lookback_days: 1 
+      end_time_buffer_hours: 6  # Hours from now to exclude in backtesting
+      n_trials: 10
+      max_parallel_trials: 10
+      total_amount: 100
+      
+      # Trading pairs to backtest
+      selected_pairs:
+        - "ADA-USDT"
+        - "BTC-USDT"
+        - "ETH-USDT"
+        - "XRP-USDT"
+        - "AVAX-USDT"
+        - "AAVE-USDT"
+        - "CRV-USDT"
