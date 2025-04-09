@@ -301,7 +301,7 @@ class StrategyOptimizer:
             finally:
                 num_completed_trials = len(study.get_trials(deepcopy=False, states=[optuna.trial.TrialState.COMPLETE]))
         
-        logger.info(f"{study.study_name} Optimization completed after {trial_attempts} trials")
+        logger.info(f"{study.study_name} study completed after {trial_attempts} trials")
 
 
     async def _optimize_async_custom_configs(self, study: optuna.Study,
@@ -505,3 +505,75 @@ class StrategyOptimizer:
             self.dashboard_process = None  # Reset process handle
         else:
             print("Dashboard is not running or already terminated.")
+            
+    async def repeat_trial(self, study_name: str, trial_number: int, 
+                         config_generator: Type[BaseStrategyConfigGenerator]):
+        """
+        Repeat a specific trial multiple times for debugging purposes.
+        
+        This is useful when a trial returns inconsistent or invalid results (like Inf values)
+        and you want to debug the issue by running the same parameters multiple times.
+        
+        Args:
+            study_name (str): The name of the study containing the trial.
+            trial_number (int): The trial number to repeat.
+            config_generator (Type[BaseStrategyConfigGenerator]): Configuration generator for the trial.
+            
+        Returns:
+            list: A list containing the results of each trial repetition.
+        """
+        study = self.get_study(study_name)
+        if not study:
+            logger.error(f"Study {study_name} not found")
+            return None
+            
+        target_trial = next((trial for trial in study.trials if trial.number == trial_number), None)
+                
+        if not target_trial:
+            logger.error(f"Trial {trial_number} not found in study {study_name}")
+            return None
+            
+        # Create a dummy trial with the same parameters for testing
+        params = target_trial.params
+        logger.info(f"Repeating trial {trial_number} with parameters: {params}")
+        
+        results = []
+        try:
+            
+            config = await config_generator.generate_config(target_trial)
+            # Run the objective function for this trial
+            backtesting_result = await self._backtesting_engine.run_backtesting(
+                config=config.config,
+                start=config.start,
+                end=config.end,
+                backtesting_resolution=self.resolution,
+            )
+            strategy_analysis = backtesting_result.results
+            
+            # Use custom objective function if provided, otherwise use default
+            if self._custom_objective:
+                value = self._custom_objective(target_trial, strategy_analysis)
+            else:
+                # Default objective: sharpe ratio
+                value = strategy_analysis["sharpe_ratio"]
+                
+            result_entry = {
+                'attempt': i + 1,
+                'value': value,
+                'is_finite': math.isfinite(value),
+                'results': strategy_analysis
+            }
+            
+            results.append(result_entry)
+            
+            logger.info(f"Debug trial returned value: {value} (finite: {math.isfinite(value)})")
+            return backtesting_result
+            
+        except Exception as e:
+            logger.error(f"Error in debug trial {i+1}: {str(e)}")
+            traceback.print_exc()
+            results.append({
+                'attempt': i + 1,
+                'error': str(e),
+                'traceback': traceback.format_exc()
+            })
