@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 class TaskRunner:
     def __init__(self, config_path: str = "config/tasks.yml"):
+        global logger
+        logger = logging.getLogger(__name__)
         load_dotenv()
         self.config_path = config_path
         self.orchestrator = TaskOrchestrator()
@@ -67,12 +69,17 @@ class TaskRunner:
                 # Merge common config with task-specific config
                 config = {**common_config, **task_config.get("config", {})}
                 
+                # Get number of parallel processes (default to 1 if not specified)
+                num_parallel_processes = task_config.get("num_parallel_processes", 1)
+                logger.info(f"Task {task_name} will run with {num_parallel_processes} parallel processes")
+                
                 # Create task instance
                 task = task_class(
                     name=task_name,
-                    frequency=timedelta(hours=task_config["frequency_hours"]),
+                    frequency=timedelta(hours=task_config["frequency_hours"]) if task_config.get("frequency_hours") is not None else None,
                     config=config
                 )
+                task.num_parallel_processes = num_parallel_processes
                 tasks.append(task)
                 logger.info(f"Initialized task: {task_name}")
 
