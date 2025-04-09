@@ -1,9 +1,13 @@
 from decimal import Decimal
 from typing import List
 
+import pandas as pd  # Added import
 import pandas_ta as ta  # noqa: F401
 from pydantic import Field, field_validator
 from pydantic_core.core_schema import ValidationInfo
+
+# Suppress the SettingWithCopyWarning
+pd.options.mode.chained_assignment = None  # default='warn'
 
 from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
 from hummingbot.strategy_v2.controllers.market_making_controller_base import (
@@ -102,8 +106,8 @@ class PMMDynamicController(MarketMakingControllerBase):
         macdh_signal = macdh.apply(lambda x: 1 if x > 0 else -1)
         max_price_shift = natr / 2
         price_multiplier = ((0.5 * macd_signal + 0.5 * macdh_signal) * max_price_shift).iloc[-1]
-        candles["spread_multiplier"] = natr
-        candles["reference_price"] = candles["close"] * (1 + price_multiplier)
+        candles.loc[:, "spread_multiplier"] = natr
+        candles.loc[:, "reference_price"] = candles["close"] * (1 + price_multiplier)
         self.processed_data = {
             "reference_price": Decimal(candles["reference_price"].iloc[-1]),
             "spread_multiplier": Decimal(candles["spread_multiplier"].iloc[-1]),
