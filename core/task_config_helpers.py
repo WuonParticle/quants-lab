@@ -1,11 +1,14 @@
-import asyncio
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional, Union, List
+import pandas as pd
+import time
+import logging
 
 from core.services.timescale_client import TimescaleClient
 from core.services.mongodb_client import MongoClient
 from core.data_structures.trading_rules import TradingRules
 
+logger = logging.getLogger(__name__)
 
 class TaskConfigHelper:
     def __init__(self, config: Dict[str, Any]):
@@ -24,37 +27,6 @@ class TaskConfigHelper:
     def create_mongo_client(self) -> MongoClient:
         """Create a MongoClient from the configuration"""
         return MongoClient(**self.config.get("db_config", {}))
-    
-    async def get_candles(self, trading_pair: str, interval: str):
-        """Get candles for a trading pair and interval using config parameters"""
-        # Create client
-        client = self.create_timescale_client()
-        
-        try:
-            # Connect to the database
-            await client.connect()
-            
-            # Get connector name from config
-            connector_name = self.config["connector_name"]
-            
-            # Calculate start and end times
-            end_time = self._get_end_time()
-            start_time = self._get_start_time(end_time)
-            
-            # Get candles
-            candles = await client.get_candles(
-                connector_name=connector_name,
-                trading_pair=trading_pair,
-                interval=interval,
-                start_time=start_time,
-                end_time=end_time
-            )
-            
-            return candles
-        finally:
-            # Clean up client
-            if client:
-                await client.close()
     
     def filter_trading_rules(self, trading_rules: TradingRules, logger=None) -> TradingRules:
         """
@@ -134,4 +106,35 @@ class TaskConfigHelper:
         
         # Calculate from days_to_analyze
         days_to_analyze = self.config.get("days_to_analyze", 30)
-        return end_time - (days_to_analyze * 24 * 60 * 60) 
+        return end_time - (days_to_analyze * 24 * 60 * 60)
+
+    def get_backtesting_time_range(self) -> tuple[float, float, str, str]:
+        """
+        Get the backtesting time range based on configuration.
+        Returns tuple of (start_timestamp, end_timestamp, human_start, human_end)
+        """
+        # Try to get absolute time range first
+        start_time_str = self.config.get("start_time")
+        end_time_str = self.config.get("end_time")
+       
+        # TODO: support end_time + lookback_days
+        if start_time_str and end_time_str:
+            try:
+                start_date = pd.to_datetime(start_time_str).timestamp()
+                end_date = pd.to_datetime(end_time_str).timestamp()
+                logger.info("Using absolute time range from config")
+            except Exception as e:
+                raise ValueError(f"Invalid datetime format in config. Please use format 'YYYY-MM-DD HH:MM:SS'. Error: {str(e)}")
+        else:
+            # Fall back to relative time range
+            end_time_buffer_hours = self.config.get("end_time_buffer_hours", 6)
+            lookback_days = self.config.get("lookback_days", 1)
+            
+            end_date = time.time() - end_time_buffer_hours * 3600
+            start_date = end_date - lookback_days * 24 * 60 * 60
+            logger.info(f"Using relative time range: {lookback_days} days lookback with {end_time_buffer_hours} hours buffer")
+        
+        human_start = datetime.fromtimestamp(start_date).strftime('%Y-%m-%d %H:%M:%S')
+        human_end = datetime.fromtimestamp(end_date).strftime('%Y-%m-%d %H:%M:%S')
+        
+        return start_date, end_date, human_start, human_end 
