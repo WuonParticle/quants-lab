@@ -17,6 +17,7 @@ class TaskRunner:
         global logger
         logger = logging.getLogger(__name__)
         load_dotenv()
+        # TODO: provide option to disable polling api utils class sys.modules['core.services.backend_api_client'] = None
         self.config_path = config_path
         self.orchestrator = TaskOrchestrator()
         self.tasks_config = self.load_config()
@@ -45,6 +46,13 @@ class TaskRunner:
                 "user": os.getenv("TIMESCALE_USER", "admin"),
                 "password": os.getenv("TIMESCALE_PASSWORD", "admin"),
                 "database": os.getenv("TIMESCALE_DB", "timescaledb")
+            },
+            "postgres_config": {
+                "host": os.getenv("POSTGRES_HOST", "localhost"),
+                "port": int(os.getenv("POSTGRES_PORT", "5432")),
+                "user": os.getenv("POSTGRES_USER", "admin"),
+                "password": os.getenv("POSTGRES_PASSWORD", "admin"),
+                "database": os.getenv("POSTGRES_DB", "optimization_database")
             },
             "mongo_config": {
                 "uri": os.getenv("MONGO_URI"),
