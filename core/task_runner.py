@@ -14,8 +14,6 @@ logger = logging.getLogger(__name__)
 
 class TaskRunner:
     def __init__(self, config_path: str = "config/tasks.yml"):
-        global logger
-        logger = logging.getLogger(__name__)
         load_dotenv()
         # TODO: provide option to disable polling api utils class sys.modules['core.services.backend_api_client'] = None
         self.config_path = config_path
@@ -47,13 +45,6 @@ class TaskRunner:
                 "password": os.getenv("TIMESCALE_PASSWORD", "admin"),
                 "database": os.getenv("TIMESCALE_DB", "timescaledb")
             },
-            "postgres_config": {
-                "host": os.getenv("POSTGRES_HOST", "localhost"),
-                "port": int(os.getenv("POSTGRES_PORT", "5432")),
-                "user": os.getenv("POSTGRES_USER", "admin"),
-                "password": os.getenv("POSTGRES_PASSWORD", "admin"),
-                "database": os.getenv("POSTGRES_DB", "optimization_database")
-            },
             "mongo_config": {
                 "uri": os.getenv("MONGO_URI"),
                 "db": os.getenv("MONGO_DB")
@@ -77,17 +68,12 @@ class TaskRunner:
                 # Merge common config with task-specific config
                 config = {**common_config, **task_config.get("config", {})}
                 
-                # Get number of parallel processes (default to 1 if not specified)
-                num_parallel_processes = task_config.get("num_parallel_processes", 1)
-                logger.info(f"Task {task_name} will run with {num_parallel_processes} parallel processes")
-                
                 # Create task instance
                 task = task_class(
                     name=task_name,
-                    frequency=timedelta(hours=task_config["frequency_hours"]) if task_config.get("frequency_hours") is not None else None,
+                    frequency=timedelta(hours=task_config["frequency_hours"]),
                     config=config
                 )
-                task.num_parallel_processes = num_parallel_processes
                 tasks.append(task)
                 logger.info(f"Initialized task: {task_name}")
 
