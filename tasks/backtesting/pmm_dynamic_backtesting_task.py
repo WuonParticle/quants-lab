@@ -4,7 +4,7 @@ import logging
 import os
 import time
 from datetime import timedelta
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from decimal import Decimal
 import traceback
 import optuna
@@ -36,6 +36,7 @@ class PMMDynamicConfigGenerator(BaseStrategyConfigGenerator):
         interval = self.config.get("interval", "1m")
         logger.debug(f"Generating config for {connector_name} {trading_pair} in trial {trial.number}")
         
+        # TODO: do a study to figure out which parameters actually matter
         trial.set_user_attr("connector_name", connector_name)
         trial.set_user_attr("trading_pair", trading_pair)
         trial.set_user_attr("interval", interval)
@@ -50,10 +51,11 @@ class PMMDynamicConfigGenerator(BaseStrategyConfigGenerator):
         natr_length = trial.suggest_int("natr_length", 10, 30)
         
         # Order parameters
-        levels = trial.suggest_int("levels", 2, 3)
+        # NOTE: this does not use the same units as simple pmm. dynamic uses units of volatility
+        num_levels = trial.suggest_int("levels", 2, 2)
         start_spread = trial.suggest_float("start_spread", 0.1, 1, step=0.05)
         step_spread = trial.suggest_float("step_spread", 0.1, 1, step=0.05)
-        spreads = Distributions.arithmetic(levels, start_spread, step_spread)
+        spreads = Distributions.arithmetic(num_levels, start_spread, step_spread)
         
         # Risk management parameters
         total_amount_quote = self.config.get("total_amount_quote", 100)
@@ -64,9 +66,9 @@ class PMMDynamicConfigGenerator(BaseStrategyConfigGenerator):
         trailing_stop_trailing_delta = trailing_stop_activation_price * trailing_delta_ratio
         
         # Time parameters
-        time_limit = trial.suggest_int("time_limit", 60 * 60 * 1, 60 * 60 * 8, step=60 * 60)
-        executor_refresh_time = trial.suggest_int("executor_refresh_time", 60 * 1, 60 * 10, step=60)
-        cooldown_time = trial.suggest_int("cooldown_time", 60 * 5, 60 * 30, step=60 * 5)
+        time_limit = trial.suggest_int("time_limit", 60, 35940, step=60)
+        executor_refresh_time = trial.suggest_int("executor_refresh_time", 60, 300, step=30)
+        cooldown_time = trial.suggest_int("cooldown_time", 10, 120, step=10)
 
         logger.debug(f"Selected parameters: macd_fast={macd_fast}, macd_slow={macd_slow}, macd_signal={macd_signal}, natr_length={natr_length}")
 
@@ -74,16 +76,20 @@ class PMMDynamicConfigGenerator(BaseStrategyConfigGenerator):
         config = PMMDynamicControllerConfig(
             connector_name=connector_name,
             trading_pair=trading_pair,
-            interval=interval,
             total_amount_quote=Decimal(total_amount_quote),
+            interval=interval,
             buy_spreads=spreads,
             sell_spreads=spreads,
+            buy_amounts_pct=None,
+            sell_amounts_pct=None,
             take_profit=Decimal(take_profit),
             stop_loss=Decimal(stop_loss),
-            trailing_stop=TrailingStop(
-                activation_price=Decimal(trailing_stop_activation_price), 
-                trailing_delta=Decimal(trailing_stop_trailing_delta)
-            ),
+            candles_connector=None,
+            candles_trading_pair=None,
+            # trailing_stop=TrailingStop(
+            #     activation_price=Decimal(trailing_stop_activation_price), 
+            #     trailing_delta=Decimal(trailing_stop_trailing_delta)
+            # ),
             time_limit=time_limit,
             cooldown_time=cooldown_time,
             executor_refresh_time=executor_refresh_time,
@@ -110,7 +116,11 @@ class PMMDynamicBacktestingTask(BaseTask):
         
         backtesting_interval = self.config.get("backtesting_interval", "1m")
         candle_interval = self.config.get("interval", "1m")
-        optimizer = StrategyOptimizer(root_path=root_path.absolute(), resolution=backtesting_interval)
+        optimizer = StrategyOptimizer(root_path=root_path.absolute(),
+                                        resolution=backtesting_interval,
+                                        db_client=self.config_helper.create_timescale_client(),
+                                        storage_name=StrategyOptimizer.get_storage_name("postgres", **self.config)
+                                        )
         logger.info(f"StrategyOptimizer initialized with root_path: {root_path.absolute()}")
         
         selected_pairs = self.config.get("selected_pairs")
@@ -120,11 +130,7 @@ class PMMDynamicBacktestingTask(BaseTask):
             pair_start_time = time.time()
             logger.info(f"[{i+1}/{len(selected_pairs)}] Processing {trading_pair}")
             
-            end_date = time.time() - self.config["end_time_buffer_hours"] * 3600
-            start_date = end_date - self.config["lookback_days"] * 24 * 60 * 60
-            
-            human_start = datetime.datetime.fromtimestamp(start_date).strftime('%Y-%m-%d %H:%M:%S')
-            human_end = datetime.datetime.fromtimestamp(end_date).strftime('%Y-%m-%d %H:%M:%S')
+            start_date, end_date, human_start, human_end = self.config_helper.get_backtesting_time_range()
             
             logger.info(f"Optimizing strategy for {connector_name} {trading_pair} {human_start} {human_end}")
 
@@ -137,7 +143,7 @@ class PMMDynamicBacktestingTask(BaseTask):
             logger.info(f"Fetching candles for {connector_name} {trading_pair}")
             
             try:
-                candles_loaded = await optimizer._backtesting_engine.load_candles_cache_for_connector_pair_from_timescale(
+                await optimizer._backtesting_engine.load_candles_cache_for_connector_pair_from_timescale(
                     connector_name=connector_name, 
                     trading_pair=trading_pair,
                     intervals=[backtesting_interval, candle_interval],
@@ -152,8 +158,7 @@ class PMMDynamicBacktestingTask(BaseTask):
                 await optimizer.optimize(
                     study_name=study_name,
                     config_generator=config_generator, 
-                    n_trials=self.config["n_trials"],
-                    max_parallel_trials=self.config.get("max_parallel_trials", 4)
+                    n_trials=self.config["n_trials"]
                 )
                 
                 optimize_duration = time.time() - optimize_start_time
@@ -166,7 +171,7 @@ class PMMDynamicBacktestingTask(BaseTask):
                 
                 await optimizer.save_best_config_to_yaml(
                     study_name=study_name, 
-                    output_path=str(best_config_path),
+                    output_path=str(best_config_path.absolute()),
                     config_generator=config_generator
                 )
                 logger.info(f"Best configuration saved to {best_config_path}")
@@ -183,19 +188,8 @@ class PMMDynamicBacktestingTask(BaseTask):
 
 
 async def main():
-    import argparse
-    import yaml
-    
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--config', type=str, required=True, help='Path to YAML config file')
-    args = parser.parse_args()
-    
-    with open(args.config, 'r') as f:
-        config_file = yaml.safe_load(f)
-        
-    config = next(iter(config_file.get("tasks").values())).get("config")
-
-    task = PMMDynamicBacktestingTask("PMM Dynamic Backtesting", timedelta(hours=12), config)
+    config = BaseTask.load_single_task_config()
+    task = PMMDynamicBacktestingTask("PMM Dynamic Backtesting", None, config)
     await task.execute()
 
 
