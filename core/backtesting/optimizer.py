@@ -514,3 +514,53 @@ class StrategyOptimizer:
             logger.error(f"Error in debug trial {trial_number}: {str(e)}")
             traceback.print_exc()
             
+    async def save_best_config_to_yaml(self, study_name: str, output_path: str, config_generator: Type[BaseStrategyConfigGenerator]):
+        """
+        Save the best configuration from a study to a YAML file.
+        
+        Args:
+            study_name (str): The name of the study to extract best parameters from.
+            output_path (str): The file path where to save the YAML file.
+            config_generator: The configuration generator instance that contains the logic to generate configs.
+        
+        Returns:
+            bool: True if the configuration was saved successfully, False otherwise.
+        """
+        try:
+            import yaml
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+                
+            # Get the best trial from the study
+            best_trial = self.get_study_best_trial(study_name)
+            backtesting_config = await config_generator.generate_config(best_trial)
+            config = backtesting_config.config.dict()
+            
+            # Generate a unique ID
+            trading_pair = config.get("trading_pair", "unknown")
+            trading_pair_id = trading_pair.replace("-", "_")
+            config_id = f"{config.get('controller_name', 'strategy')}_{trading_pair_id}_{study_name}"
+            config["id"] = config_id
+            performance = best_trial.user_attrs.get("performance", {})
+            # Remove performance metrics if present
+            # TODO: check if this is required.
+            if "performance" in config:
+                del config["performance"]
+            
+            # Ensure the output directory exists
+            # TODO use Path library
+            os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+            
+            # Save to YAML file
+            with open(output_path, "w") as f:
+                def decimal_representer(dumper, data):
+                    return dumper.represent_float(float(data))
+                yaml.add_representer(Decimal, decimal_representer)
+                yaml.dump(config, f, default_flow_style=False)
+                
+            logger.info(f"Saved best configuration to {output_path}")
+            return performance
+            
+        except Exception as e:
+            logger.error(f"Error saving configuration: {str(e)}")
+            logger.error(traceback.format_exc())
+            return False
