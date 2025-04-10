@@ -18,6 +18,7 @@ from hummingbot.strategy_v2.controllers import ControllerConfigBase
 from pydantic import BaseModel
 
 from core.backtesting import BacktestingEngine
+from core.data_structures.backtesting_result import BacktestingResult
 from core.services.timescale_client import TimescaleClient
 from core.services.postgres_client import PostgresClient
 
@@ -292,6 +293,9 @@ class StrategyOptimizer:
 
         trial_attempts = 0
         num_completed_trials = len(study.get_trials(deepcopy=False, states=[optuna.trial.TrialState.COMPLETE]))
+        if num_completed_trials >= n_trials:
+            logger.warning(f"{study.study_name} study already completed with {num_completed_trials} trials")
+            return
         # Only attempt 1 more trial than responsible for to avoid looping if failing
         while (num_completed_trials < n_trials and trial_attempts < math.ceil((n_trials + 1))):
             start_time = time.perf_counter()
@@ -402,63 +406,6 @@ class StrategyOptimizer:
             return study.best_trial
         return None
 
-    async def save_best_config_to_yaml(self, study_name: str, output_path: str, config_generator: Type[BaseStrategyConfigGenerator]):
-        """
-        Save the best configuration from a study to a YAML file.
-        
-        Args:
-            study_name (str): The name of the study to extract best parameters from.
-            output_path (str): The file path where to save the YAML file.
-            config_generator: The configuration generator instance that contains the logic to generate configs.
-        
-        Returns:
-            bool: True if the configuration was saved successfully, False otherwise.
-        """
-        try:
-            import yaml
-            
-            # Get the best trial from the study
-            best_trial = self.get_study_best_trial(study_name)
-            if not best_trial:
-                logger.warning(f"No trials found for study {study_name}")
-                return False
-                
-            best_params = best_trial.params
-            
-            # Generate configuration using the config generator and best parameters
-                # Create a new trial with the best parameters
-            
-            backtesting_config = await config_generator.generate_config(self.get_study_best_trial(study_name))
-            config = backtesting_config.config.dict()
-            
-            # Generate a unique ID
-            trading_pair = config.get("trading_pair", "unknown")
-            trading_pair_id = trading_pair.replace("-", "_")
-            config_id = f"{config.get('controller_name', 'strategy')}_{trading_pair_id}_{study_name}"
-            config["id"] = config_id
-            
-            # Remove performance metrics if present
-            if "performance" in config:
-                del config["performance"]
-            
-            # Ensure the output directory exists
-            os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-            
-            # Save to YAML file
-            with open(output_path, "w") as f:
-                def decimal_representer(dumper, data):
-                    return dumper.represent_float(float(data))
-                yaml.add_representer(Decimal, decimal_representer)
-                yaml.dump(config, f, default_flow_style=False)
-                
-            logger.info(f"Saved configuration to {output_path}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error saving configuration: {str(e)}")
-            logger.error(traceback.format_exc())
-            return False
-
     async def _async_objective(self, trial: optuna.Trial, config_generator: Type[BaseStrategyConfigGenerator]) -> float:
         """
         The asynchronous objective function for a given trial.
@@ -472,25 +419,8 @@ class StrategyOptimizer:
         """
         try:
             # Generate configuration using the config generator
-            backtesting_config = await config_generator.generate_config(trial)
-            # Await the backtesting result
-            backtesting_result = await self._backtesting_engine.run_backtesting(
-                config=backtesting_config.config,
-                start=backtesting_config.start,
-                end=backtesting_config.end,
-                backtesting_resolution=self.resolution,
-            )
+            backtesting_result = await self._async_run_backtesting(trial, config_generator)
             strategy_analysis = backtesting_result.results
-
-            for key, value in strategy_analysis.items():
-                trial.set_user_attr(key, value)
-            trial.set_user_attr("config", backtesting_result.controller_config.json())
-            executors_df = backtesting_result.executors_df.copy()
-            executors_df["close_type"] = executors_df["close_type"].apply(lambda x: x.name)
-            executors_df["status"] = executors_df["status"].apply(lambda x: x.name)
-            executors_df.drop(columns=["config"], inplace=True)
-            trial.set_user_attr("executors", executors_df.to_json())
-
             # Use custom objective function if provided, otherwise use default
             if self._custom_objective:
                 return self._custom_objective(trial, strategy_analysis)
@@ -502,6 +432,28 @@ class StrategyOptimizer:
             traceback.print_exc()
             return float('-inf')  # Return a very low value to indicate failure
 
+    async def _async_run_backtesting(self, trial: optuna.Trial, config_generator: Type[BaseStrategyConfigGenerator]) -> BacktestingResult:
+        backtesting_config = await config_generator.generate_config(trial)
+        # Await the backtesting result
+        backtesting_result = await self._backtesting_engine.run_backtesting(
+            config=backtesting_config.config,
+            start=backtesting_config.start,
+            end=backtesting_config.end,
+            backtesting_resolution=self.resolution,
+        )
+        strategy_analysis = backtesting_result.results
+
+        for key, value in strategy_analysis.items():
+            trial.set_user_attr(key, value)
+        trial.set_user_attr("config", backtesting_result.controller_config.json())
+        executors_df = backtesting_result.executors_df.copy()
+        executors_df["close_type"] = executors_df["close_type"].apply(lambda x: x.name)
+        executors_df["status"] = executors_df["status"].apply(lambda x: x.name)
+        executors_df.drop(columns=["config"], inplace=True)
+        trial.set_user_attr("executors", executors_df.to_json())
+
+        return backtesting_result
+    
     def launch_optuna_dashboard(self):
         """
         Launch the Optuna dashboard for visualization.
@@ -519,8 +471,7 @@ class StrategyOptimizer:
         else:
             print("Dashboard is not running or already terminated.")
             
-    async def repeat_trial(self, study_name: str, trial_number: int, 
-                         config_generator: Type[BaseStrategyConfigGenerator]):
+    async def repeat_trial(self, study_name: str, trial_number: int, config_generator: Type[BaseStrategyConfigGenerator]):
         """
         Repeat a specific trial multiple times for debugging purposes.
         
@@ -550,43 +501,16 @@ class StrategyOptimizer:
         params = target_trial.params
         logger.info(f"Repeating trial {trial_number} with parameters: {params}")
         
-        results = []
         try:
-            
-            config = await config_generator.generate_config(target_trial)
             # Run the objective function for this trial
-            backtesting_result = await self._backtesting_engine.run_backtesting(
-                config=config.config,
-                start=config.start,
-                end=config.end,
-                backtesting_resolution=self.resolution,
-            )
+            backtesting_result = await self._async_run_backtesting(target_trial, config_generator)
             strategy_analysis = backtesting_result.results
             
-            # Use custom objective function if provided, otherwise use default
-            if self._custom_objective:
-                value = self._custom_objective(target_trial, strategy_analysis)
-            else:
-                # Default objective: sharpe ratio
-                value = strategy_analysis["sharpe_ratio"]
-                
-            result_entry = {
-                'attempt': i + 1,
-                'value': value,
-                'is_finite': math.isfinite(value),
-                'results': strategy_analysis
-            }
             
-            results.append(result_entry)
-            
-            logger.info(f"Debug trial returned value: {value} (finite: {math.isfinite(value)})")
+            logger.info(f"Debug trial returned results: {strategy_analysis}")
             return backtesting_result
             
         except Exception as e:
-            logger.error(f"Error in debug trial {i+1}: {str(e)}")
+            logger.error(f"Error in debug trial {trial_number}: {str(e)}")
             traceback.print_exc()
-            results.append({
-                'attempt': i + 1,
-                'error': str(e),
-                'traceback': traceback.format_exc()
-            })
+            
