@@ -6,8 +6,10 @@ services:
       - POSTGRES_USER=admin
       - POSTGRES_PASSWORD=admin
       - POSTGRES_DB=timescaledb
+      # - POSTGRES_HOST_AUTH_METHOD=trust
     ports:
       - "5432:5432"
+      - "8080:5432" # for debugging from wsl
     volumes:
       - timescale_data:/var/lib/postgresql/data
     restart: unless-stopped
