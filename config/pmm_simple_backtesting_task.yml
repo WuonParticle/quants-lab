@@ -6,7 +6,7 @@ tasks:
     config:
       # Backtesting parameters
       connector_name: "okx"
-      backtesting_interval: "1s"  
+      backtesting_interval: "1m"  
       # Time range configuration - use either absolute or relative time range
       # Absolute time range (takes precedence if both are provided)
       start_time: "2025-04-08 00:00:00"  # Optional: Start time in YYYY-MM-DD HH:MM:SS format

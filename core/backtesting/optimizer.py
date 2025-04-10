@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from core.backtesting import BacktestingEngine
 from core.services.timescale_client import TimescaleClient
+from core.services.postgres_client import PostgresClient
 
 load_dotenv()
 
@@ -116,21 +117,34 @@ class StrategyOptimizer:
         self._storage_name = storage_name if storage_name else self.get_storage_name(engine="sqlite", root_path=root_path)
         self.dashboard_process = None
         self._custom_objective = None
-
+    
     @classmethod
-    def get_storage_name(cls, engine, **kwargs):
+    def get_storage_name(cls, engine, create_db_if_not_exists: bool = True, **kwargs):
+        """
+        Get the storage name for the optimization database.
+        
+        Args:
+            engine (str): The database engine to use ("sqlite" or "postgres").
+            create_db_if_not_exists (bool): Whether to create the database if it doesn't exist.
+            **kwargs: Additional arguments for database configuration.
+                      For sqlite: root_path, database_name
+                      For postgres: either postgres_config dict
+        
+        Returns:
+            str: The storage name (connection string) for the database.
+        """
         if engine == "sqlite":
             root_path = kwargs.get("root_path", "")
-            database_name = kwargs.get("database_name", "optimization_database")
-            path = os.path.join(root_path, "data", "backtesting", f"{database_name}.db")
+            db_name = kwargs.get("database_name", "optimization_database")
+            path = os.path.join(root_path, "data", "backtesting", f"{db_name}.db")
             return f"sqlite:///{path}"
         elif engine == "postgres":
-            db_host = kwargs.get("db_host", "localhost")
-            db_port = kwargs.get("db_port", 5432)
-            db_user = kwargs.get("db_user", "admin")
-            db_pass = kwargs.get("db_pass", "admin")
-            database_name = kwargs.get("database_name", "optimization_database")
-            return f"postgresql+psycopg2://{db_user}:{db_pass}@{db_host}:{db_port}/{database_name}"
+            # Let PostgresClient.from_config handle all configuration and db creation
+            _, connection_string = PostgresClient.from_config(
+                create_db_if_not_exists=create_db_if_not_exists,
+                **kwargs  # Pass all kwargs to handle both configuration styles
+            )
+            return connection_string
 
     def load_candles_cache_by_connector_pair(self, connector_name: str, trading_pair: str):
         """
