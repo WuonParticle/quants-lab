@@ -1,0 +1,32 @@
+# PMM Dynamic Backtesting Task Configuration
+---
+tasks:
+  PMM_Dynamic_Backtesting:
+    task_class: "tasks.backtesting.pmm_dynamic_backtesting_task.PMMDynamicBacktestingTask"
+    num_parallel_processes: 2 # Number of parallel processes to run for this task.
+    config:
+      # Backtesting parameters
+      connector_name: "okx"
+      interval: "1s"  # Default candle interval for PMM Dynamic
+      backtesting_interval: "1m"  
+      
+      # Time range configuration - use either absolute or relative time range
+      # Absolute time range (takes precedence if both are provided)
+      start_time: "2025-04-08 12:00:00"  # Optional: Start time in YYYY-MM-DD HH:MM:SS format
+      end_time: "2025-04-08 13:00:00"    # Optional: End time in YYYY-MM-DD HH:MM:SS format
+      
+      
+      n_trials: 200
+      total_amount_quote: 100
+      # debug_trial: 100
+      
+      # Container visibility (helps with Docker Desktop UI)
+      startup_delay_seconds: 60           # Optional: Delay between container starts for better visibility
+      
+      # Trading pairs to backtest
+      selected_pairs:
+        - "ADA-USDT"
+        # - "XRP-USDT"
+        # - "CRV-USDT"
+        # - "AAVE-USDT"
+        # - "AVAX-USDT"
