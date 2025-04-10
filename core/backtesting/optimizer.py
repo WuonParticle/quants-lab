@@ -250,7 +250,6 @@ class StrategyOptimizer:
         Returns:
             optuna.Study: The created or loaded study.
         """
-        logger.info("About to create a study...")
         return optuna.create_study(
             direction=direction,
             study_name=study_name,
@@ -260,7 +259,7 @@ class StrategyOptimizer:
         )
 
     async def optimize(self, study_name: str, config_generator: Type[BaseStrategyConfigGenerator], n_trials: int = 100,
-                       load_if_exists: bool = True, num_parallel_trials: int = 1):
+                       load_if_exists: bool = True):
         """
         Run the optimization process asynchronously.
 
@@ -272,8 +271,8 @@ class StrategyOptimizer:
             num_parallel_trials (int): Number of trials being run in parallel. Just helps with preventing running all trials if some are failing.
         """
         study = self._create_study(study_name, load_if_exists=load_if_exists)
-        logger.info(f"About to start optimizing {study_name} with max {num_parallel_trials} parallel trials...")
-        await self._optimize_async(study, config_generator, n_trials=n_trials, num_parallel_trials=num_parallel_trials)
+        logger.info(f"About to start optimizing {study_name} with {n_trials} trials.")
+        await self._optimize_async(study, config_generator, n_trials=n_trials)
 
     async def optimize_custom_configs(self, study_name: str, config_generator: Type[BaseStrategyConfigGenerator],
                                       load_if_exists: bool = True):
@@ -289,12 +288,12 @@ class StrategyOptimizer:
         await self._optimize_async_custom_configs(study, config_generator)
 
     async def _optimize_async(self, study: optuna.Study, config_generator: Type[BaseStrategyConfigGenerator],
-                              n_trials: int, num_parallel_trials: int = 1):
+                              n_trials: int):
 
         trial_attempts = 0
         num_completed_trials = len(study.get_trials(deepcopy=False, states=[optuna.trial.TrialState.COMPLETE]))
         # Only attempt 1 more trial than responsible for to avoid looping if failing
-        while (num_completed_trials < n_trials and trial_attempts < math.ceil((n_trials + 1) / num_parallel_trials)):
+        while (num_completed_trials < n_trials and trial_attempts < math.ceil((n_trials + 1))):
             start_time = time.perf_counter()
             trial = study.ask()
             logger.info(f"Starting {study.study_name} trial {trial.number}/{n_trials}")
