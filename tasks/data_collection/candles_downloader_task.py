@@ -32,6 +32,7 @@ class CandlesDownloaderTask(BaseTask):
         self.base_asset_filter = config.get("base_asset_filter", None)
         self.quote_asset_filter = config.get("quote_asset_filter", None)
         self.cleanup_old_data = config.get("cleanup_old_data", False)
+        self.from_trades = config.get("from_trades", False)
         
         # Initialize helpers
         self.config_helper = TaskConfigHelper(config)
@@ -41,6 +42,7 @@ class CandlesDownloaderTask(BaseTask):
         date_format = "%Y-%m-%d %H:%M:%S UTC"
         logging.info(f"Starting {self.__class__.__name__} for {self.connector_name}")
         
+                
         # Calculate time range for data retention
         end_time = datetime.now(timezone.utc)
         start_time = pd.Timestamp(time.time() - self.days_data_retention * 24 * 60 * 60,
@@ -51,26 +53,18 @@ class CandlesDownloaderTask(BaseTask):
 
         # Create database client using helper
         timescale_client = self.config_helper.create_timescale_client()
-        logging.info(f"TimescaleDB Client Properties:")
-        logging.info(vars(timescale_client))  # vars() shows all instance variables
-        await timescale_client.connect()
 
         try:
-            # Get all trading rules
+            await timescale_client.connect()
             trading_rules = await self.clob.get_trading_rules(self.connector_name)
-            
-            # Apply filters using the helper method
             trading_rules = self.config_helper.filter_trading_rules(trading_rules, logger=logging)
-            
-            # Get final trading pairs
             trading_pairs = trading_rules.get_all_trading_pairs()
             logging.info(f"Final trading pairs: {trading_pairs}")
             
-            # Process each trading pair and interval
             for i, trading_pair in enumerate(trading_pairs):
                 for interval in self.intervals:
-                    logging.info(f"Fetching candles for {trading_pair} [{i+1} from {len(trading_pairs)}]")
                     try:
+                        logging.info(f"Fetching {interval} candles for {trading_pair} [{i+1} from {len(trading_pairs)}]")
                         table_name = timescale_client.get_ohlc_table_name(self.connector_name, trading_pair, interval)
                         await timescale_client.create_candles_table(table_name)
                         last_candle_timestamp = await timescale_client.get_last_candle_timestamp(
@@ -79,23 +73,46 @@ class CandlesDownloaderTask(BaseTask):
                             interval=interval)
                         from_time = last_candle_timestamp if last_candle_timestamp else start_time.timestamp()
                         
-                        # TODO grab both first and last candle timestamp in case days_data_retention is increased
-                        #       when this is the case then we need to do an extra query to get the missing beginning candles
-                        # Get candles
+                        # Get the first candle timestamp to handle cases where days_data_retention has increased
+                        first_candle_timestamp = await timescale_client.get_first_candle_timestamp(
+                            connector_name=self.connector_name,
+                            trading_pair=trading_pair,
+                            interval=interval)
+                        
+                        # Check if we need additional historical data due to increased retention period
+                        historical_candles = None
+                        if first_candle_timestamp is not None and first_candle_timestamp > start_time.timestamp():
+                            logging.info(f"Data retention period increased, fetching historical data before {datetime.fromtimestamp(first_candle_timestamp).strftime('%Y-%m-%d %H:%M:%S')}")
+                            historical_candles = await self.clob.get_candles(
+                                self.connector_name,
+                                trading_pair,
+                                interval,
+                                start_time=int(start_time.timestamp()),
+                                end_time=int(first_candle_timestamp),
+                                from_trades=self.from_trades
+                            )
+                            
+                            # Store historical candles immediately to ensure they're saved even if later operations fail
+                            if historical_candles is not None and not historical_candles.data.empty:
+                                logging.info(f"Storing {len(historical_candles.data)} historical candles for {trading_pair}")
+                                await timescale_client.append_candles(table_name=table_name,
+                                                                     candles=historical_candles.data.values.tolist())
+                        
+                        # Get candles from last timestamp to current end time
                         candles = await self.clob.get_candles(
                             self.connector_name,
                             trading_pair,
                             interval,
                             int(from_time),
-                            # int(start_time.timestamp()),
                             int(end_time.timestamp()),
+                            from_trades=self.from_trades
                         )
 
                         if candles.data.empty:
-                            logging.info(f"No new trades for {trading_pair}")
+                            logging.info(f"No new candles for {trading_pair}")
                             continue
 
-                        # Store candles in database
+                        # Store recent candles
                         await timescale_client.append_candles(table_name=table_name,
                                                             candles=candles.data.values.tolist())
                         
@@ -142,12 +159,8 @@ if __name__ == "__main__":
         "database": os.getenv("TIMESCALE_DB", "timescaledb")
     }
     config = {
-<<<<<<< HEAD
         "connector_name": "binance_perpetual",
         "quote_asset": "USDT",
-=======
-        "connector_name": "hyperliquid_perpetual",
->>>>>>> 12fbdc7 (extend candle loader task with additional config options)
         "intervals": ["15m", "1h"],
         "days_data_retention": 30,
         "min_notional_size": 10,

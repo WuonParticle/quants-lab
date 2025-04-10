@@ -243,6 +243,14 @@ class TimescaleClient:
             ''')
             return result.timestamp() if result else None
 
+    async def get_first_candle_timestamp(self, connector_name: str, trading_pair: str, interval: str) -> Optional[float]:
+        table_name = self.get_ohlc_table_name(connector_name, trading_pair, interval)
+        async with self.pool.acquire() as conn:
+            result = await conn.fetchval(f'''
+                SELECT MIN(timestamp) FROM {table_name}
+            ''')
+            return result.timestamp() if result else None
+
     async def close(self):
         if self.pool:
             await self.pool.close()
