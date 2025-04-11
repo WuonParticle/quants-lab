@@ -28,6 +28,7 @@ class BacktestingResult(DataStructureBase):
         max_drawdown_pct = results["max_drawdown_pct"]
         total_volume = results["total_volume"]
         sharpe_ratio = results["sharpe_ratio"]
+        sortino_ratio = results["sortino_ratio"]
         profit_factor = results["profit_factor"]
         total_executors = results["total_executors"]
         accuracy_long = results["accuracy_long"]
@@ -39,7 +40,7 @@ class BacktestingResult(DataStructureBase):
         early_stop = results["close_types"].get("EARLY_STOP", 0)
         return f"""
 Net PNL: ${net_pnl_quote:.2f} ({net_pnl_pct*100:.2f}%) | Max Drawdown: ${max_drawdown:.2f} ({max_drawdown_pct*100:.2f}%)
-Total Volume ($): {total_volume:.2f} | Sharpe Ratio: {sharpe_ratio:.2f} | Profit Factor: {profit_factor:.2f}
+Total Volume ($): {total_volume:.2f} | Sharpe Ratio: {sharpe_ratio:.2f} | sortino Ratio: {sortino_ratio:.2f} | Profit Factor: {profit_factor:.2f}
 Total Executors: {total_executors} | Accuracy Long: {accuracy_long:.2f} | Accuracy Short: {accuracy_short:.2f}
 Close Types: Take Profit: {take_profit} | Stop Loss: {stop_loss} | Time Limit: {time_limit} |
              Trailing Stop: {trailing_stop} | Early Stop: {early_stop}
