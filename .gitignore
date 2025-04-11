@@ -163,3 +163,8 @@ cython_debug/
 
 */*.DS_Store
 data/
+config/generated/*
+.vscode/*
+config/custom_tasks.yml
+tmp/*
+tmp-*
