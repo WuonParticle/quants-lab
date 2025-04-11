@@ -52,6 +52,7 @@ class CLOBDataSource:
         self.connectors = {name: self.get_connector(name) for name, settings in self.conn_settings.items()
                            if settings.type in self.CONNECTOR_TYPES and name not in self.EXCLUDED_CONNECTORS and
                            "testnet" not in name}
+        # TODO: a CandlesCache class 
         self._candles_cache: Dict[Tuple[str, str, str], pd.DataFrame] = {}
 
     @staticmethod
@@ -111,7 +112,7 @@ class CLOBDataSource:
             new_end_time = end_time
 
         try:
-            logger.info(f"Fetching data for {connector_name} {trading_pair} {interval} from {new_start_time} to {new_end_time}")
+            logger.debug(f"Fetching data for {connector_name} {trading_pair} {interval} from {new_start_time} to {new_end_time}")
             if from_trades:
                 trades = await self.get_trades(connector_name, trading_pair, new_start_time, new_end_time)
                 pandas_interval = self.convert_interval_to_pandas_freq(interval)
