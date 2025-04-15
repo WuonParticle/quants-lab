@@ -35,26 +35,10 @@ class TaskRunner:
             logger.error(f"Error importing task class {task_class_path}: {e}")
             raise
 
-    def get_common_config(self) -> Dict[str, Any]:
-        """Get common configuration from environment variables"""
-        return {
-            "timescale_config": {
-                "host": os.getenv("TIMESCALE_HOST", "localhost"),
-                "port": int(os.getenv("TIMESCALE_PORT", "5432")),
-                "user": os.getenv("TIMESCALE_USER", "admin"),
-                "password": os.getenv("TIMESCALE_PASSWORD", "admin"),
-                "database": os.getenv("TIMESCALE_DB", "timescaledb")
-            },
-            "mongo_config": {
-                "uri": os.getenv("MONGO_URI"),
-                "db": os.getenv("MONGO_DB")
-            }
-        }
-
     def initialize_tasks(self) -> List[BaseTask]:
         """Initialize all enabled tasks from configuration"""
         tasks = []
-        common_config = self.get_common_config()
+        common_config = BaseTask.get_common_config()
 
         for task_name, task_config in self.tasks_config["tasks"].items():
             if not task_config.get("enabled", True):
@@ -68,10 +52,11 @@ class TaskRunner:
                 # Merge common config with task-specific config
                 config = {**common_config, **task_config.get("config", {})}
                 
+                frequency_hours = task_config.get("frequency_hours", None)
                 # Create task instance
                 task = task_class(
                     name=task_name,
-                    frequency=timedelta(hours=task_config["frequency_hours"]),
+                    frequency=timedelta(hours=frequency_hours) if frequency_hours is not None else None,
                     config=config
                 )
                 tasks.append(task)

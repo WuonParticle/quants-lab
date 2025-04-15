@@ -1,6 +1,7 @@
 import asyncio
 import argparse
 import logging.config
+import os
 
 logging.basicConfig(
     level=logging.INFO,
@@ -21,4 +22,5 @@ async def main():
     await runner.run()
 
 if __name__ == "__main__":
-    asyncio.run(main()) 
+    debug = os.environ.get("ASYNC_DEBUG", False)
+    asyncio.run(main(), debug=debug) 
