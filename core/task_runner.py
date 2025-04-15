@@ -61,7 +61,7 @@ class TaskRunner:
     def initialize_tasks(self) -> List[BaseTask]:
         """Initialize all enabled tasks from configuration"""
         tasks = []
-        common_config = self.get_common_config()
+        common_config = BaseTask.get_common_config()
 
         for task_name, task_config in self.tasks_config["tasks"].items():
             if not task_config.get("enabled", True):
@@ -75,10 +75,11 @@ class TaskRunner:
                 # Merge common config with task-specific config
                 config = {**common_config, **task_config.get("config", {})}
                 
+                frequency_hours = task_config.get("frequency_hours", None)
                 # Create task instance
                 task = task_class(
                     name=task_name,
-                    frequency=timedelta(hours=task_config["frequency_hours"]),
+                    frequency=timedelta(hours=frequency_hours) if frequency_hours is not None else None,
                     config=config
                 )
                 tasks.append(task)
