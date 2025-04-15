@@ -19,9 +19,9 @@ from core.backtesting.optimizer import StrategyOptimizer, BacktestingConfig, Bas
 from core.task_base import BaseTask
 from core.task_config_helpers import TaskConfigHelper
 
+load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-load_dotenv()
 
 
 class PMMSimpleConfigGenerator(BaseStrategyConfigGenerator):
@@ -138,11 +138,19 @@ class PMMSimpleBacktestingTask(BaseTask):
                 optimize_start_time = time.time()
                 logger.info(f"Starting optimization with {self.config['n_trials']} trials for {trading_pair}")
                 study_name = f"pmm_simple_{trading_pair}_{backtesting_interval}"
-                await optimizer.optimize(
-                    study_name=study_name,
-                    config_generator=config_generator, 
-                    n_trials=self.config["n_trials"]
-                )
+                debug_trial = self.config.get("debug_trial", False)
+                if debug_trial:
+                    await optimizer.repeat_trial(
+                        study_name=study_name,
+                        trial_number=debug_trial,
+                        config_generator=config_generator
+                    )
+                else:
+                    await optimizer.optimize(
+                        study_name=study_name,
+                        config_generator=config_generator, 
+                        n_trials=self.config["n_trials"]
+                    )
                 
                 optimize_duration = time.time() - optimize_start_time
                 logger.info(f"Optimization completed in {optimize_duration:.2f} seconds for {trading_pair}")
@@ -170,21 +178,11 @@ class PMMSimpleBacktestingTask(BaseTask):
 
 
 async def main():
-    import argparse
-    import yaml
-    
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--config', type=str, required=True, help='Path to YAML config file')
-    args = parser.parse_args()
-    
-    with open(args.config, 'r') as f:
-        config_file = yaml.safe_load(f)
-        
-    config = next(iter(config_file.get("tasks").values())).get("config")
-
-    task = PMMSimpleBacktestingTask("PMM Simple Backtesting", timedelta(hours=12), config)
-    await task.execute()
-
+    # Run from command line with: python -m tasks.backtesting.pmm_simple_backtesting_task --config config/pmm_simple_backtesting_task.yml
+    config = BaseTask.load_single_task_config()
+    task = PMMSimpleBacktestingTask("PMM Simple Backtesting", None, config)
+    await task.run_once()
 
 if __name__ == "__main__":
-    asyncio.run(main()) 
+    debug = os.environ.get("ASYNC_DEBUG", False)
+    asyncio.run(main(), debug=debug) 
