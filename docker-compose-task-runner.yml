@@ -5,7 +5,6 @@ services:
     image: hummingbot/quants-lab:latest
     volumes:
       - .:/quants-lab
-      - ./config:/quants-lab/config
     build: .
     # env_file:
     #  - .env
