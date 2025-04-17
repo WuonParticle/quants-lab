@@ -2,10 +2,12 @@ import importlib
 import logging
 import os
 from datetime import timedelta
+from pathlib import Path
 from typing import Dict, Any, List
 
 import yaml
 from dotenv import load_dotenv
+import hummingbot
 
 from core.task_base import TaskOrchestrator, BaseTask
 
@@ -39,6 +41,25 @@ class TaskRunner:
         """Initialize all enabled tasks from configuration"""
         tasks = []
         common_config = BaseTask.get_common_config()
+        config_password = os.getenv("HUMMGINGBOT_CONFIG_PASSWORD")
+        source_path = os.getenv("HUMMGINGBOT_SOURCE_PATH")
+        if source_path is not None:
+            path = Path(source_path)
+            if not path.exists():
+                logger.warning(f"Source path {source_path} does not exist, using default root path")
+            else:
+                # This is the easiest way because as soon as other modules are imported, they set a large number of properties
+                hummingbot.root_path = lambda: path
+                if config_password is not None:
+                    from hummingbot.client.config.config_crypt import ETHKeyFileSecretManger
+                    from hummingbot.client.config.security import Security
+                    secrets_manager = ETHKeyFileSecretManger(config_password)
+                    Security.login(secrets_manager)
+                    # TODO check if the await Security.wait_til_decryption_done() is needed
+                
+                from hummingbot.client.config.config_helpers import load_client_config_map_from_file
+                _ = load_client_config_map_from_file()
+            
 
         for task_name, task_config in self.tasks_config["tasks"].items():
             if not task_config.get("enabled", True):
@@ -63,7 +84,9 @@ class TaskRunner:
                 logger.info(f"Initialized task: {task_name}")
 
             except Exception as e:
+                import traceback
                 logger.error(f"Error initializing task {task_name}: {e}")
+                logger.error(f"Stacktrace: {traceback.format_exc()}")
                 continue
 
         return tasks
