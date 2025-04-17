@@ -30,5 +30,25 @@ SHELL ["conda", "run", "-n", "quants-lab", "/bin/bash", "-c"]
 # Copy task configurations
 COPY config/tasks.yml /quants-lab/config/tasks.yml
 
+# Copy and make scripts executable
+COPY scripts/ scripts/
+RUN chmod +x scripts/*.sh
+
+# Update GLIBCXX if needed (if you get an error about missing GLIBCXX_3.4.32)
+# RUN ./scripts/update_glibcxx.sh
+
+# Create wheels directory and handle wheel installation
+RUN mkdir -p wheels/
+COPY wheels/ wheels/
+
+# Optionally install local Hummingbot wheel if present
+RUN if [ -n "$(find wheels/ -name 'hummingbot-*.whl' 2>/dev/null)" ]; then \
+    echo "Installing local Hummingbot wheel..." && \
+    pip install --force-reinstall $(find wheels/ -name 'hummingbot-*.whl') && \
+    echo "Local Hummingbot wheel installed successfully"; \
+    else \
+    echo "No local Hummingbot wheel found, using version from environment.yml"; \
+    fi
+
 # Default command now uses the task runner
 CMD ["conda", "run", "--no-capture-output", "-n", "quants-lab", "python3", "run_tasks.py"]

@@ -1,13 +1,18 @@
 .ONESHELL:
 .PHONY: uninstall
 .PHONY: install
-
+.PHONY: reference-local-hummingbot
 
 uninstall:
 	conda env remove -n quants-lab -y
 
 install:
 	conda env create -f environment.yml
+
+# Reference local Hummingbot version use force-repackage=true to force re-package
+reference-local-hummingbot:
+	bash ./scripts/reference_local_hummingbot.sh $(if $(force-repackage),--force-repackage,)
+	
 # Build local image
 build:
 	docker build -t hummingbot/quants-lab -f Dockerfile .
