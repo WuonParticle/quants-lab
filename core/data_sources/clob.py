@@ -9,6 +9,7 @@ import pandas as pd
 from hummingbot.client.config.client_config_map import ClientConfigMap
 from hummingbot.client.config.config_helpers import ClientConfigAdapter, get_connector_class
 from hummingbot.client.settings import AllConnectorSettings, ConnectorType
+from hummingbot.core.data_type.common import LazyDict
 from hummingbot.data_feed.candles_feed.candles_factory import CandlesFactory
 from hummingbot.data_feed.candles_feed.data_types import CandlesConfig, HistoricalCandlesConfig
 
@@ -49,9 +50,15 @@ class CLOBDataSource:
         self.candles_factory = CandlesFactory()
         self.trades_feeds = {"binance_perpetual": BinancePerpetualTradesFeed()}
         self.conn_settings = AllConnectorSettings.get_connector_settings()
-        self.connectors = {name: self.get_connector(name) for name, settings in self.conn_settings.items()
-                           if settings.type in self.CONNECTOR_TYPES and name not in self.EXCLUDED_CONNECTORS and
-                           "testnet" not in name}
+        # Use LazyDict for connector initialization
+        self.connectors = LazyDict[str, Optional[Any]](
+            lambda name: self.get_connector(name) if (
+                name in self.conn_settings and # Check if name exists in settings first
+                self.conn_settings[name].type in self.CONNECTOR_TYPES and 
+                name not in self.EXCLUDED_CONNECTORS and
+                "testnet" not in name
+            ) else None # Return None if conditions aren't met
+        )
         # TODO: a CandlesCache class 
         self._candles_cache: Dict[Tuple[str, str, str], pd.DataFrame] = {}
 
@@ -209,7 +216,7 @@ class CLOBDataSource:
     # TODO: ADD ORDER BOOK SNAPSHOT METHOD
 
     async def get_trading_rules(self, connector_name: str):
-        connector = self.connectors.get(connector_name)
+        connector = self.connectors[connector_name]
         await connector._update_trading_rules()
         return TradingRules(list(connector.trading_rules.values()))
 
@@ -270,7 +277,7 @@ class CLOBDataSource:
                                      end_time: Optional[int] = None,
                                      limit: int = 1000) -> pd.DataFrame:
         """Get historical funding rates for a symbol"""
-        connector = self.connectors.get("binance_perpetual")
+        connector = self.connectors["binance_perpetual"] # Access directly via key
         params = {"symbol": symbol, "limit": limit}
         
         if start_time:
@@ -295,7 +302,7 @@ class CLOBDataSource:
 
     async def get_current_funding_info(self, symbol: Optional[str] = None) -> Dict[str, Any]:
         """Get current funding rate info for a symbol or all symbols"""
-        connector = self.connectors.get("binance_perpetual")
+        connector = self.connectors["binance_perpetual"] # Access directly via key
         response = await connector._orderbook_ds.get_funding_info(symbol)
         return response
 
