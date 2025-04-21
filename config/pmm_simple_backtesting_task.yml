@@ -14,9 +14,9 @@ tasks:
       end_time: "2025-04-08 13:00:00"    # Optional: End time in YYYY-MM-DD HH:MM:SS format
       
       
-      n_trials: 2500
+      n_trials: 20
       total_amount_quote: 100
-      debug_trial: 742
+      # debug_trial: 742
 
       # Trading pairs to backtest
       selected_pairs:
