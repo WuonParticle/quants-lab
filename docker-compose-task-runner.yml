@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   task-runner:
     image: hummingbot/quants-lab:latest
