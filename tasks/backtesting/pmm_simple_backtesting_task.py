@@ -110,7 +110,8 @@ class PMMSimpleBacktestingTask(BaseTask):
         optimizer = StrategyOptimizer(root_path=root_path.absolute(),
                                      resolution=backtesting_interval,
                                      db_client=self.config_helper.create_timescale_client(),
-                                     storage_name=StrategyOptimizer.get_storage_name("postgres", **self.config)
+                                     storage_name=StrategyOptimizer.get_storage_name("postgres", **self.config),
+                                     custom_objective= lambda _, x: x["total_volume"] if x["net_pnl_quote"] > 0 else 0.0
                                     )
         logger.info(f"StrategyOptimizer initialized with root_path: {root_path.absolute()}")
         
@@ -138,14 +139,14 @@ class PMMSimpleBacktestingTask(BaseTask):
                     connector_name=connector_name, 
                     trading_pair=trading_pair,
                     intervals=[backtesting_interval, candle_interval],
-                    start_time = start_date - 60 * 60, # add 1 hour buffer
+                    start_time = start_date - 60 * 60, # add 1 hour buffer for TA calculations
                     end_time = end_date + 60 * 60,
                     timescale_client=self.config_helper.create_timescale_client()
                 )
                 
                 optimize_start_time = time.time()
                 logger.info(f"Starting optimization with {self.config['n_trials']} trials for {trading_pair}")
-                study_name = f"pmm_simple_{trading_pair}_{backtesting_interval}"
+                study_name = f"pmm_simple_{trading_pair}_{backtesting_interval}_{self.config['n_trials']}_{optimize_start_time}"
                 debug_trial = self.config.get("debug_trial", False)
                 if debug_trial:
                     await optimizer.repeat_trial(
@@ -186,6 +187,12 @@ class PMMSimpleBacktestingTask(BaseTask):
 
 
 async def main():
+    # Force is needed to override other logging configurations
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        force=True
+    )
     # Run from command line with: python -m tasks.backtesting.pmm_simple_backtesting_task --config config/pmm_simple_backtesting_task.yml
     config = BaseTask.load_single_task_config()
     task = PMMSimpleBacktestingTask("PMM Simple Backtesting", None, config)
