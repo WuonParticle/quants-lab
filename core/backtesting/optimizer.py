@@ -96,7 +96,8 @@ class StrategyOptimizer:
     def __init__(self, storage_name: Optional[str] = None, root_path: str = "",
                  load_cached_data: bool = False, resolution: str = "1m", db_client: Optional[TimescaleClient] = None,
                  custom_backtester: Optional[BacktestingEngineBase] = None,
-                 custom_objective: Optional[Callable[[optuna.Trial, dict[str, float]], float]] = None):
+                 custom_objective: Optional[Callable[[optuna.Trial, dict[str, float]], float]] = None,
+                 seed: Optional[int] = 42):
         """
         Initialize the optimizer with a backtesting engine and database configuration.
 
@@ -119,7 +120,8 @@ class StrategyOptimizer:
         self._storage_name = storage_name if storage_name else self.get_storage_name(engine="sqlite", root_path=root_path)
         self.dashboard_process = None
         self._custom_objective = custom_objective
-    
+        self.seed = seed 
+        
     @classmethod
     def get_storage_name(cls, engine, create_db_if_not_exists: bool = True, **kwargs):
         """
@@ -256,8 +258,9 @@ class StrategyOptimizer:
             direction=direction,
             study_name=study_name,
             storage=self._storage_name,
-            sampler=optuna.samplers.TPESampler(),
-            load_if_exists=load_if_exists
+            sampler=optuna.samplers.TPESampler(seed = self.seed),
+            load_if_exists=load_if_exists,
+            
         )
 
     async def optimize(self, study_name: str, config_generator: Type[BaseStrategyConfigGenerator], n_trials: int = 100,
@@ -273,8 +276,8 @@ class StrategyOptimizer:
             num_parallel_trials (int): Number of trials being run in parallel. Just helps with preventing running all trials if some are failing.
         """
         study = self._create_study(study_name, load_if_exists=load_if_exists)
-        logger.info(f"About to start optimizing {study_name} with {n_trials} trials.")
-        await self._optimize_async(study, config_generator, n_trials=n_trials)
+        logger.debug(f"About to start optimizing {study_name} with {n_trials} trials.")
+        return await self._optimize_async(study, config_generator, n_trials=n_trials)
 
     async def optimize_custom_configs(self, study_name: str, config_generator: Type[BaseStrategyConfigGenerator],
                                       load_if_exists: bool = True):
@@ -287,7 +290,7 @@ class StrategyOptimizer:
             load_if_exists (bool): Whether to load an existing study if available.
         """
         study = self._create_study(study_name, load_if_exists=load_if_exists)
-        await self._optimize_async_custom_configs(study, config_generator)
+        return await self._optimize_async_custom_configs(study, config_generator)
 
     async def _optimize_async(self, study: optuna.Study, config_generator: Type[BaseStrategyConfigGenerator],
                               n_trials: int):
@@ -295,13 +298,13 @@ class StrategyOptimizer:
         trial_attempts = 0
         num_completed_trials = len(study.get_trials(deepcopy=False, states=[optuna.trial.TrialState.COMPLETE]))
         if num_completed_trials >= n_trials:
-            logger.warning(f"{study.study_name} study already completed with {num_completed_trials} trials")
-            return
+            logger.debug(f"study already completed with {num_completed_trials} trials")
+            return study
         # Only attempt 1 more trial than responsible for to avoid looping if failing
         while (num_completed_trials < n_trials and trial_attempts < math.ceil((n_trials + 1))):
             start_time = time.perf_counter()
             trial = study.ask()
-            logger.info(f"Starting {study.study_name} trial {trial.number}/{n_trials}")
+            logger.debug(f"Starting trial {trial.number}/{n_trials}")
             trial_attempts += 1
             try:
                 # Run the async objective function and get the result
@@ -319,8 +322,8 @@ class StrategyOptimizer:
             finally:
                 num_completed_trials = len(study.get_trials(deepcopy=False, states=[optuna.trial.TrialState.COMPLETE]))
         
-        logger.info(f"{study.study_name} study completed after {trial_attempts} trials")
-
+        logger.info(f"study completed after {trial_attempts} trials")
+        return study
 
     async def _optimize_async_custom_configs(self, study: optuna.Study,
                                              config_generator: Type[BaseStrategyConfigGenerator]):
@@ -381,6 +384,7 @@ class StrategyOptimizer:
 
             # Report the result back to the study
             study.tell(trial, value)
+        return study
 
     def set_custom_objective(self, objective_function):
         """
@@ -509,7 +513,7 @@ class StrategyOptimizer:
             
             
             logger.info(f"Debug trial returned results: {strategy_analysis}")
-            return backtesting_result
+            return study
             
         except Exception as e:
             logger.error(f"Error in debug trial {trial_number}: {str(e)}")
@@ -530,7 +534,7 @@ class StrategyOptimizer:
         try:
             import yaml
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-                
+            
             # Get the best trial from the study
             best_trial = self.get_study_best_trial(study_name)
             backtesting_config = await config_generator.generate_config(best_trial)
@@ -558,7 +562,7 @@ class StrategyOptimizer:
                 yaml.add_representer(Decimal, decimal_representer)
                 yaml.dump(config, f, default_flow_style=False)
                 
-            logger.info(f"Saved best configuration to {output_path}")
+            logger.info(f"Saved best configuration with value: {best_trial.value} to {output_path}")
             return performance
             
         except Exception as e:
