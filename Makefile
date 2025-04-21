@@ -56,6 +56,15 @@ stop-task:
 	docker compose -f $$COMPOSE_FILE down; \
 	if [ "$(SERVICE_NAME)" != "task-runner" ]; then rm -f $$COMPOSE_FILE; fi
 
-# Add this target after the run-task target
-run-single-task:
-	python run_single_task.py --config config/$(config)
+
+# Run multiple instances of task runner in parallel
+run-parallel:
+	@if [ -z "$(instances)" ]; then \
+		echo "Usage: make run-parallel instances=<number_of_instances> config=<task_config_file>"; \
+		exit 1; \
+	fi
+	TASK_CONFIG=config/$(config) docker compose -f docker-compose-parallel.yml up -d --scale parallel-task-runner=$(instances); \
+
+# Stop parallel task runners
+stop-parallel:
+	docker compose -f docker-compose-parallel.yml down
