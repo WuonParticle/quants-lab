@@ -9,7 +9,7 @@ import time
 import traceback
 import asyncio
 from abc import ABC, abstractmethod
-from typing import List, Optional, Type, Dict
+from typing import Callable, List, Optional, Type, Dict
 
 import optuna
 from dotenv import load_dotenv
@@ -95,7 +95,8 @@ class StrategyOptimizer:
 
     def __init__(self, storage_name: Optional[str] = None, root_path: str = "",
                  load_cached_data: bool = False, resolution: str = "1m", db_client: Optional[TimescaleClient] = None,
-                 custom_backtester: Optional[BacktestingEngineBase] = None):
+                 custom_backtester: Optional[BacktestingEngineBase] = None,
+                 custom_objective: Optional[Callable[[optuna.Trial, dict[str, float]], float]] = None):
         """
         Initialize the optimizer with a backtesting engine and database configuration.
 
@@ -117,7 +118,7 @@ class StrategyOptimizer:
         self.root_path = root_path
         self._storage_name = storage_name if storage_name else self.get_storage_name(engine="sqlite", root_path=root_path)
         self.dashboard_process = None
-        self._custom_objective = None
+        self._custom_objective = custom_objective
     
     @classmethod
     def get_storage_name(cls, engine, create_db_if_not_exists: bool = True, **kwargs):
@@ -306,7 +307,7 @@ class StrategyOptimizer:
                 # Run the async objective function and get the result
                 value = await self._async_objective(trial, config_generator)
                 duration = time.perf_counter() - start_time
-                logger.info(f"Trial {trial.number} completed with value: {value} in {duration} seconds")
+                logger.info(f"Trial {trial.number} completed with value: {value:.2f} in {duration:.1f} seconds")
 
                 # Report the result back to the study
                 study.tell(trial, value)
