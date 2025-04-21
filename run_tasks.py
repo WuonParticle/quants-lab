@@ -3,10 +3,12 @@ import argparse
 import logging.config
 import os
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+def setup_logging():
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        force=True
+    )
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Run tasks from configuration')
@@ -17,6 +19,7 @@ def parse_args():
 
 async def main():
     from core.task_runner import TaskRunner
+    setup_logging()
     args = parse_args()
     runner = TaskRunner(config_path=args.config)
     await runner.run()
