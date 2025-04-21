@@ -2,6 +2,7 @@ import asyncio
 import datetime
 import logging
 import os
+import random
 import time
 from datetime import timedelta
 from typing import Any, Dict
@@ -97,7 +98,7 @@ class PMMSimpleBacktestingTask(BaseTask):
     async def execute(self):
         start_time = time.time()
         self.config_helper = TaskConfigHelper(self.config)
-        
+        random.seed(42)
         filtered_config = {k: v for k, v in self.config.items() if k not in ['timescale_config', 'postgres_config', 'mongo_config']}
         logger.info(f"Starting PMMSimpleBacktestingTask at {datetime.datetime.now()} with config: {filtered_config}")
         
@@ -119,7 +120,7 @@ class PMMSimpleBacktestingTask(BaseTask):
         connector_name = self.config.get("connector_name")
         
         for i, trading_pair in enumerate(selected_pairs):
-            pair_start_time = time.time()
+            pair_start_time = time.perf_counter()
             logger.info(f"[{i+1}/{len(selected_pairs)}] Processing {trading_pair}")
             
             start_date, end_date, human_start, human_end = self.config_helper.get_backtesting_time_range()
@@ -144,24 +145,24 @@ class PMMSimpleBacktestingTask(BaseTask):
                     timescale_client=self.config_helper.create_timescale_client()
                 )
                 
-                optimize_start_time = time.time()
+                optimize_start_time = time.perf_counter()
                 logger.info(f"Starting optimization with {self.config['n_trials']} trials for {trading_pair}")
-                study_name = f"pmm_simple_{trading_pair}_{backtesting_interval}_{self.config['n_trials']}_{optimize_start_time}"
+                study_name = f"pmm_simple_{trading_pair}_{backtesting_interval}_{self.config['n_trials']}_{optimize_start_time:.0f}"
                 debug_trial = self.config.get("debug_trial", False)
                 if debug_trial:
-                    await optimizer.repeat_trial(
+                    best_trial = await optimizer.repeat_trial(
                         study_name=study_name,
                         trial_number=debug_trial,
                         config_generator=config_generator
                     )
                 else:
-                    await optimizer.optimize(
+                    best_trial = await optimizer.optimize(
                         study_name=study_name,
                         config_generator=config_generator, 
                         n_trials=self.config["n_trials"]
                     )
                 
-                optimize_duration = time.time() - optimize_start_time
+                optimize_duration = time.perf_counter() - optimize_start_time
                 logger.info(f"Optimization completed in {optimize_duration:.2f} seconds for {trading_pair}")
                 
                 today_str = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -179,11 +180,11 @@ class PMMSimpleBacktestingTask(BaseTask):
                 logger.error(f"Error processing {trading_pair}: {str(e)}")
                 logger.error(traceback.format_exc())
             
-            pair_duration = time.time() - pair_start_time
-            logger.info(f"Completed {trading_pair} in {pair_duration:.2f} seconds")
+            pair_duration = time.perf_counter() - pair_start_time
+            logger.info(f"Completed {trading_pair} in {pair_duration:.2f} seconds with best_trial value {best_trial.value}")
         
         total_duration = time.time() - start_time
-        logger.info(f"PMM Simple backtesting task completed in {total_duration:.2f} seconds")
+        # logger.info(f"PMM Simple backtesting task completed in {total_duration:.2f} seconds")
 
 
 async def main():
