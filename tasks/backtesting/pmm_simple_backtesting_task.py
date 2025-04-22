@@ -44,26 +44,28 @@ class PMMSimpleConfigGenerator(BaseStrategyConfigGenerator):
         num_levels = 1 
         # trial.suggest_int("levels", 2, 5)
         # Generate buy and sell spreads
-        # Buy spreads
-        buy_0 = trial.suggest_float("buy_0", 0.00001, 0.01001, step=0.00005)
-        buy_1_step = trial.suggest_float("buy_1_step", 0.00001, 0.01001, step=0.00005)
-        sell_0 = trial.suggest_float("sell_0", 0.00001, 0.01001, step=0.00005)
-        sell_1_step = trial.suggest_float("sell_1_step", 0.00001, 0.01001, step=0.00005)
-        buy_spreads = [buy_0, buy_0 + buy_1_step]
-        sell_spreads = [sell_0, sell_0 + sell_1_step]
+        # Buy spreads in bips to help with step size
+        # 1 hr trial with percents resulted with volume 2150.8293086164326 Params = [buy_0: 0.0056099999999999995, buy_1_step: 0.00506, sell_0: 0.0012100000000000001, sell_1_step: 0.00016, take_profit: 0.01, stop_loss: 0.04, time_limit: 120, executor_refresh_time: 60, cooldown_time: 300]
+        
+        buy_0 = trial.suggest_float("buy_0", 1, 100, step=1)
+        buy_1_step = trial.suggest_float("buy_1_step", 1, 100, step=1)
+        sell_0 = trial.suggest_float("sell_0", 1, 100, step=1)
+        sell_1_step = trial.suggest_float("sell_1_step", 1, 100, step=1)
+        buy_spreads = [buy_0 / 10000, (buy_0 + buy_1_step) / 10000]
+        sell_spreads = [sell_0 / 10000, (sell_0 + sell_1_step) / 10000]
         
         # Risk management parameters
         total_amount_quote = self.config.get("total_amount_quote", 100)
-        take_profit = trial.suggest_float("take_profit", 0.01, 0.05, step=0.005)
-        stop_loss = trial.suggest_float("stop_loss", 0.01, 0.05, step=0.005)
+        take_profit = trial.suggest_float("take_profit", 0.001, 0.1, step=0.0005)
+        stop_loss = trial.suggest_float("stop_loss", 0.001, 0.1, step=0.0005)
         # trailing_stop_activation_price = trial.suggest_float("trailing_stop_activation_price", 0.005, 0.02, step=0.005)
         # trailing_delta_ratio = trial.suggest_float("trailing_delta_ratio", 0.1, 0.5, step=0.1)
         # trailing_stop_trailing_delta = trailing_stop_activation_price * trailing_delta_ratio
         
         # Time parameters
-        time_limit = trial.suggest_int("time_limit", 60, 35940, step=60)
+        time_limit = trial.suggest_int("time_limit", 60, 900, step=30)
         executor_refresh_time = trial.suggest_int("executor_refresh_time", 60, 300, step=30)
-        cooldown_time = trial.suggest_int("cooldown_time", 60, 300, step=30)
+        cooldown_time = trial.suggest_int("cooldown_time", 30, 200, step=10)
 
         # logger.debug(f"Selected parameters: buy_spread={buy_spread}, sell_spread={sell_spread}, levels={num_levels}")
 
@@ -147,7 +149,8 @@ class PMMSimpleBacktestingTask(BaseTask):
                 
                 optimize_start_time = time.perf_counter()
                 logger.info(f"Starting optimization with {self.config['n_trials']} trials for {trading_pair}")
-                study_name = f"pmm_simple_{trading_pair}_{backtesting_interval}_{self.config['n_trials']}_{optimize_start_time:.0f}"
+                # study_name = f"pmm_simple_{trading_pair}_{backtesting_interval}_{self.config['n_trials']}_{optimize_start_time:.0f}"
+                study_name = f"pmm_simple_{trading_pair}_{backtesting_interval}_{self.config['n_trials']}"
                 debug_trial = self.config.get("debug_trial", False)
                 if debug_trial:
                     best_trial = await optimizer.repeat_trial(
