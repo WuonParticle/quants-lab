@@ -24,8 +24,23 @@ class TaskRunner:
 
     def load_config(self) -> Dict[str, Any]:
         """Load task configuration from YAML file"""
-        with open(self.config_path, 'r') as f:
-            return yaml.safe_load(f)
+        if os.path.exists(self.config_path):
+            with open(self.config_path, 'r') as f:
+                return yaml.safe_load(f)
+        
+        # Try adding "config/" prefix if the original path doesn't exist
+        config_prefixed_path = os.path.join("config", self.config_path)
+        if os.path.exists(config_prefixed_path):
+            with open(config_prefixed_path, 'r') as f:
+                return yaml.safe_load(f)
+            
+        with_yml_path = config_prefixed_path + ".yml"
+        if os.path.exists(with_yml_path):
+            with open(with_yml_path, 'r') as f:
+                return yaml.safe_load(f)
+        
+        raise FileNotFoundError(f"Config file not found at {self.config_path} or {config_prefixed_path} or {with_yml_path}")
+    
 
     def import_task_class(self, task_class_path: str) -> type:
         """Dynamically import task class from string path"""
