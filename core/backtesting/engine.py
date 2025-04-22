@@ -145,8 +145,9 @@ class BacktestingEngine:
         )
 
     async def run_backtesting(self, config: ControllerConfigBase, start: int,
-                              end: int, backtesting_resolution: str, trade_cost: float = 0.0006) -> BacktestingResult:
-        bt_result = await self._bt_engine.run_backtesting(config, start, end, backtesting_resolution, trade_cost)
+                              end: int, backtesting_resolution: str, trade_cost: float = 0.0006,
+                              backtest_offset: int = 0) -> BacktestingResult:
+        bt_result = await self._bt_engine.run_backtesting(config, start, end, backtesting_resolution, trade_cost, backtest_offset)
         return BacktestingResult(bt_result, config)
 
     async def backtest_controller_from_yml(self,
