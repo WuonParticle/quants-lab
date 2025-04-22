@@ -14,7 +14,7 @@ tasks:
       end_time: "2025-04-08 13:00:00"    # Optional: End time in YYYY-MM-DD HH:MM:SS format
       
       
-      n_trials: 10
+      n_trials: 1000
       total_amount_quote: 100
       # debug_trial: 742
 
