@@ -3,12 +3,32 @@ from typing import Any, Dict, Optional, Union, List
 import pandas as pd
 import time
 import logging
+from dataclasses import dataclass
 
 from core.services.timescale_client import TimescaleClient
 from core.services.mongodb_client import MongoClient
 from core.data_structures.trading_rules import TradingRules
 
 logger = logging.getLogger(__name__)
+
+@dataclass
+class BacktestTimeRange:
+    start_date: float
+    end_date: float
+    human_start: str
+    human_end: str
+    backtest_window_size: Optional[int] = None
+
+    def __iter__(self):
+        # For backward compatibility, allow unpacking the first 4 values
+        return iter((self.start_date, self.end_date, self.human_start, self.human_end))
+
+    def __getitem__(self, index):
+        # For backward compatibility, allow indexing the first 4 values
+        values = (self.start_date, self.end_date, self.human_start, self.human_end)
+        if index < len(values):
+            return values[index]
+        raise IndexError("TimeRange index out of range")
 
 class TaskConfigHelper:
     def __init__(self, config: Dict[str, Any]):
@@ -108,10 +128,10 @@ class TaskConfigHelper:
         days_to_analyze = self.config.get("days_to_analyze", 30)
         return end_time - (days_to_analyze * 24 * 60 * 60)
 
-    def get_backtesting_time_range(self) -> tuple[float, float, str, str]:
+    def get_backtesting_time_range(self) -> BacktestTimeRange:
         """
         Get the backtesting time range based on configuration.
-        Returns tuple of (start_timestamp, end_timestamp, human_start, human_end)
+        Returns a BacktestTimeRange object containing start/end timestamps and human-readable times.
         """
         # Try to get absolute time range first
         start_time_str = self.config.get("start_time")
@@ -136,5 +156,11 @@ class TaskConfigHelper:
         
         human_start = datetime.fromtimestamp(start_date).strftime('%Y-%m-%d %H:%M:%S')
         human_end = datetime.fromtimestamp(end_date).strftime('%Y-%m-%d %H:%M:%S')
-        
-        return start_date, end_date, human_start, human_end 
+       
+        return BacktestTimeRange(
+            start_date=start_date,
+            end_date=end_date,
+            human_start=human_start,
+            human_end=human_end,
+            backtest_window_size=self.config.get("backtest_window_size", None)
+        )
