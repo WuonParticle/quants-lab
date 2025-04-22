@@ -12,9 +12,9 @@ tasks:
       # Absolute time range (takes precedence if both are provided)
       start_time: "2025-04-08 12:00:00"  # Optional: Start time in YYYY-MM-DD HH:MM:SS format
       end_time: "2025-04-08 13:00:00"    # Optional: End time in YYYY-MM-DD HH:MM:SS format
+      backtest_offset: 1
       
-      
-      n_trials: 100
+      n_trials: 1000
       total_amount_quote: 100
       study_name_suffix: "round2"
       # debug_trial: 742

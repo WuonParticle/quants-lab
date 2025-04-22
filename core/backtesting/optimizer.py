@@ -97,7 +97,8 @@ class StrategyOptimizer:
                  load_cached_data: bool = False, resolution: str = "1m", db_client: Optional[TimescaleClient] = None,
                  custom_backtester: Optional[BacktestingEngineBase] = None,
                  custom_objective: Optional[Callable[[optuna.Trial, dict[str, float]], float]] = None,
-                 seed: Optional[int] = 42):
+                 seed: Optional[int] = 42,
+                 backtest_offset: int = 0):
         """
         Initialize the optimizer with a backtesting engine and database configuration.
 
@@ -121,7 +122,7 @@ class StrategyOptimizer:
         self.dashboard_process = None
         self._custom_objective = custom_objective
         self.seed = seed 
-        
+        self.backtest_offset = backtest_offset
     @classmethod
     def get_storage_name(cls, engine, create_db_if_not_exists: bool = True, **kwargs):
         """
@@ -365,6 +366,7 @@ class StrategyOptimizer:
                     start=start,
                     end=end,
                     backtesting_resolution=self.resolution,
+                    backtest_offset=self.backtest_offset,
                 )
                 strategy_analysis = backtesting_result.results
 
@@ -445,6 +447,7 @@ class StrategyOptimizer:
             start=backtesting_config.start,
             end=backtesting_config.end,
             backtesting_resolution=self.resolution,
+            backtest_offset=self.backtest_offset,
         )
         strategy_analysis = backtesting_result.results
 
