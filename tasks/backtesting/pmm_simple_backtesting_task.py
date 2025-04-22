@@ -47,10 +47,10 @@ class PMMSimpleConfigGenerator(BaseStrategyConfigGenerator):
         # Buy spreads in bips to help with step size
         # 1 hr trial with percents resulted with volume 2150.8293086164326 Params = [buy_0: 0.0056099999999999995, buy_1_step: 0.00506, sell_0: 0.0012100000000000001, sell_1_step: 0.00016, take_profit: 0.01, stop_loss: 0.04, time_limit: 120, executor_refresh_time: 60, cooldown_time: 300]
         
-        buy_0 = trial.suggest_float("buy_0", 1, 100, step=1)
-        buy_1_step = trial.suggest_float("buy_1_step", 1, 100, step=1)
-        sell_0 = trial.suggest_float("sell_0", 1, 100, step=1)
-        sell_1_step = trial.suggest_float("sell_1_step", 1, 100, step=1)
+        buy_0 = trial.suggest_float("buy_0", 1, 200, step=1)
+        buy_1_step = trial.suggest_float("buy_1_step", 1, 120, step=1)
+        sell_0 = trial.suggest_float("sell_0", 1, 200, step=1)
+        sell_1_step = trial.suggest_float("sell_1_step", 1, 120, step=1)
         buy_spreads = [buy_0 / 10000, (buy_0 + buy_1_step) / 10000]
         sell_spreads = [sell_0 / 10000, (sell_0 + sell_1_step) / 10000]
         
@@ -64,8 +64,8 @@ class PMMSimpleConfigGenerator(BaseStrategyConfigGenerator):
         
         # Time parameters
         time_limit = trial.suggest_int("time_limit", 60, 900, step=30)
-        executor_refresh_time = trial.suggest_int("executor_refresh_time", 60, 300, step=30)
-        cooldown_time = trial.suggest_int("cooldown_time", 30, 200, step=10)
+        executor_refresh_time = trial.suggest_int("executor_refresh_time", 60, 300, step=10)
+        cooldown_time = trial.suggest_int("cooldown_time", 30, 300, step=10)
 
         # logger.debug(f"Selected parameters: buy_spread={buy_spread}, sell_spread={sell_spread}, levels={num_levels}")
 
