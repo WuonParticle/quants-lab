@@ -17,18 +17,15 @@ class BacktestTimeRange:
     end_date: float
     human_start: str
     human_end: str
+    backtest_window_step: Optional[int] = None
     backtest_window_size: Optional[int] = None
 
     def __iter__(self):
         # For backward compatibility, allow unpacking the first 4 values
         return iter((self.start_date, self.end_date, self.human_start, self.human_end))
 
-    def __getitem__(self, index):
-        # For backward compatibility, allow indexing the first 4 values
-        values = (self.start_date, self.end_date, self.human_start, self.human_end)
-        if index < len(values):
-            return values[index]
-        raise IndexError("TimeRange index out of range")
+    def for_window(self):
+        return iter((self.start_date, self.end_date, self.human_start, self.human_end, self.backtest_window_size, self.backtest_window_step))
 
 class TaskConfigHelper:
     def __init__(self, config: Dict[str, Any]):
@@ -162,5 +159,6 @@ class TaskConfigHelper:
             end_date=end_date,
             human_start=human_start,
             human_end=human_end,
+            backtest_window_step=self.config.get("backtest_window_step", None),
             backtest_window_size=self.config.get("backtest_window_size", None)
         )

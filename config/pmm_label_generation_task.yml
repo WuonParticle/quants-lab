@@ -13,9 +13,10 @@ tasks:
       start_time: "2025-04-08 12:00:00"  # Optional: Start time in YYYY-MM-DD HH:MM:SS format
       end_time: "2025-04-08 13:00:00"    # Optional: End time in YYYY-MM-DD HH:MM:SS format
       backtest_offset: 1
-      backtest_window_size: 60
+      backtest_window_step: 60
+      backtest_window_size: 300
       
-      n_trials: 1000
+      n_trials: 100
       total_amount_quote: 100
       # study_name_suffix: "cooldown_test"
       # debug_trial: 742
