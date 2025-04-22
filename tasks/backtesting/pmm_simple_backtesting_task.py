@@ -35,6 +35,7 @@ class PMMSimpleConfigGenerator(BaseStrategyConfigGenerator):
         trading_pair = self.config["trading_pair"]
         interval = self.config.get("interval", "1m")
         logger.debug(f"Generating config for {connector_name} {trading_pair} in trial {trial.number}")
+        total_amount_quote = self.config.get("total_amount_quote", 100)
         
         trial.set_user_attr("connector_name", connector_name)
         trial.set_user_attr("trading_pair", trading_pair)
@@ -48,24 +49,26 @@ class PMMSimpleConfigGenerator(BaseStrategyConfigGenerator):
         # 1 hr trial with percents resulted with volume 2150.8293086164326 Params = [buy_0: 0.0056099999999999995, buy_1_step: 0.00506, sell_0: 0.0012100000000000001, sell_1_step: 0.00016, take_profit: 0.01, stop_loss: 0.04, time_limit: 120, executor_refresh_time: 60, cooldown_time: 300]
         
         buy_0 = trial.suggest_float("buy_0", 1, 200, step=1)
-        buy_1_step = trial.suggest_float("buy_1_step", 1, 120, step=1)
+        buy_1_step = trial.suggest_float("buy_1_step", 0, 200, step=5)
         sell_0 = trial.suggest_float("sell_0", 1, 200, step=1)
-        sell_1_step = trial.suggest_float("sell_1_step", 1, 120, step=1)
+        sell_1_step = trial.suggest_float("sell_1_step", 0, 200, step=5)
         buy_spreads = [buy_0 / 10000, (buy_0 + buy_1_step) / 10000]
         sell_spreads = [sell_0 / 10000, (sell_0 + sell_1_step) / 10000]
         
-        # Risk management parameters
-        total_amount_quote = self.config.get("total_amount_quote", 100)
-        take_profit = trial.suggest_float("take_profit", 0.001, 0.1, step=0.0005)
-        stop_loss = trial.suggest_float("stop_loss", 0.001, 0.1, step=0.0005)
+        # Risk management parameters (in %)
+        take_profit = trial.suggest_float("take_profit", 0.1, 10, step=0.1)
+        stop_loss = trial.suggest_float("stop_loss", 1, 20, step=0.1)
         # trailing_stop_activation_price = trial.suggest_float("trailing_stop_activation_price", 0.005, 0.02, step=0.005)
         # trailing_delta_ratio = trial.suggest_float("trailing_delta_ratio", 0.1, 0.5, step=0.1)
         # trailing_stop_trailing_delta = trailing_stop_activation_price * trailing_delta_ratio
         
         # Time parameters
-        time_limit = trial.suggest_int("time_limit", 60, 900, step=30)
-        executor_refresh_time = trial.suggest_int("executor_refresh_time", 60, 300, step=10)
-        cooldown_time = trial.suggest_int("cooldown_time", 30, 300, step=10)
+        # time_limit = 90 
+        time_limit = trial.suggest_int("time_limit", 5, 300, step=5)
+        executor_refresh_time =  60
+        # time_limit = trial.suggest_int("time_limit", 60, 900, step=30)
+        # executor_refresh_time = trial.suggest_int("executor_refresh_time", 60, 300, step=10)
+        cooldown_time = trial.suggest_int("cooldown_time", 5, 300, step=5)
 
         # logger.debug(f"Selected parameters: buy_spread={buy_spread}, sell_spread={sell_spread}, levels={num_levels}")
 

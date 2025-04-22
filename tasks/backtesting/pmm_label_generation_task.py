@@ -10,10 +10,10 @@ from decimal import Decimal
 import traceback
 import optuna
 from pathlib import Path
-
 import pandas as pd
 from dotenv import load_dotenv
 from hummingbot.strategy_v2.executors.position_executor.data_types import TrailingStop
+import fcntl
 
 from controllers.market_making.pmm_simple import PMMSimpleController, PMMSimpleConfig
 from core.backtesting.optimizer import StrategyOptimizer, BacktestingConfig, BaseStrategyConfigGenerator
@@ -43,21 +43,20 @@ class PMMSimpleConfigGenerator(BaseStrategyConfigGenerator):
         # Order parameters
         # Generate buy and sell spreads
         # Buy spreads in bips to help with step size
-        buy_0 = trial.suggest_float("buy_0", 1, 200, step=1)
+        buy_0_bips = trial.suggest_float("buy_0_bips", 1, 200, step=1)
         buy_1_step = trial.suggest_float("buy_1_step", 0, 200, step=5)
-        sell_0 = trial.suggest_float("sell_0", 1, 200, step=1)
+        sell_0_bips = trial.suggest_float("sell_0_bips", 1, 200, step=1)
         sell_1_step = trial.suggest_float("sell_1_step", 0, 200, step=5)
-        buy_spreads = [buy_0 / 10000, (buy_0 + buy_1_step) / 10000]
-        sell_spreads = [sell_0 / 10000, (sell_0 + sell_1_step) / 10000]
+        buy_spreads = [buy_0_bips / 10000, (buy_0_bips + buy_1_step) / 10000]
+        sell_spreads = [sell_0_bips / 10000, (sell_0_bips + sell_1_step) / 10000]
         
         # Risk management parameters (in %)
-        take_profit = trial.suggest_float("take_profit", 0.1, 10, step=0.1)
-        stop_loss = trial.suggest_float("stop_loss", 1, 20, step=0.1)
+        take_profit = trial.suggest_float("take_profit_pct", 0.125, 10, step=0.125) / 100
+        stop_loss = trial.suggest_float("stop_loss_pct", 0.5, 20, step=0.125) / 100
         # trailing_stop_activation_price = trial.suggest_float("trailing_stop_activation_price", 0.005, 0.02, step=0.005)
         # trailing_delta_ratio = trial.suggest_float("trailing_delta_ratio", 0.1, 0.5, step=0.1)
         # trailing_stop_trailing_delta = trailing_stop_activation_price * trailing_delta_ratio
         
-        # Time parameters
         # fixing per pmm_simple_ADA-USDT_1s_2000_round2fixed   
         time_limit = 90 
         executor_refresh_time = 60
@@ -75,7 +74,6 @@ class PMMSimpleConfigGenerator(BaseStrategyConfigGenerator):
             buy_amounts_pct=None,
             sell_amounts_pct=None,
             take_profit=Decimal(take_profit),
-            
             stop_loss=Decimal(stop_loss),
             # trailing_stop=TrailingStop(
             #     activation_price=Decimal(trailing_stop_activation_price), 
@@ -93,7 +91,7 @@ class PMMSimpleConfigGenerator(BaseStrategyConfigGenerator):
 
 class PMMLabelGenerationTask(BaseTask):
     async def execute(self):
-        start_time = time.time()
+        task_start_time = time.perf_counter()
         self.config_helper = TaskConfigHelper(self.config)
         random.seed(42)
         filtered_config = {k: v for k, v in self.config.items() if k not in ['timescale_config', 'postgres_config', 'mongo_config']}
@@ -103,6 +101,7 @@ class PMMLabelGenerationTask(BaseTask):
         root_path = Path(os.getenv("root_path") or self.config.get("root_path", Path(__file__).parent / "../.."))
         (root_path / "data" / "candles").mkdir(parents=True, exist_ok=True)
         (root_path / "data" / "backtesting").mkdir(parents=True, exist_ok=True)
+        (root_path / "data" / "labels").mkdir(parents=True, exist_ok=True)
         
         backtesting_interval = self.config.get("backtesting_interval", "1s")
         candle_interval = self.config.get("interval", "1m")
@@ -123,73 +122,100 @@ class PMMLabelGenerationTask(BaseTask):
             pair_start_time = time.perf_counter()
             logger.info(f"[{i+1}/{len(selected_pairs)}] Processing {trading_pair}")
             
-            bt_timerange = self.config_helper.get_backtesting_time_range()
-            start_date, end_date, human_start, human_end = bt_timerange 
+            start_time, end_time, human_start, human_end, backtest_window_size, backtest_window_step = self.config_helper.get_backtesting_time_range().for_window()
             
             logger.info(f"Optimizing strategy for {connector_name} {trading_pair} {human_start} {human_end}")
-                
+            
+            # Load all candles for the entire period first
             await optimizer._backtesting_engine.load_candles_cache_for_connector_pair_from_timescale(
                     connector_name=connector_name, 
                     trading_pair=trading_pair,
                     intervals=[backtesting_interval, candle_interval],
-                    start_time = start_date - 60 * 60, # add 1 hour buffer for TA calculations
-                    end_time = end_date + 60 * 60,
-                    timescale_client=self.config_helper.create_timescale_client()
+                    start_time = start_time - 60 * 60, # add 1 hour buffer for TA calculations and window overhang
+                    end_time = end_time + 60 * 60,
+                    timescale_client=optimizer._db_client
                 )
 
-            config_generator = PMMSimpleConfigGenerator(
-                start_date=pd.to_datetime(start_date, unit="s"),
-                end_date=pd.to_datetime(end_date, unit="s"),
-                config={**self.config, "trading_pair": trading_pair}
-            )
-            
-            logger.info(f"Fetching candles for {connector_name} {trading_pair}")
-            
             try:
+                # Calculate number of windows based on total duration and step size
+                total_duration = end_time - start_time
+                num_windows = int(total_duration / backtest_window_step)
+                logger.info(f"Creating {num_windows} studies for {trading_pair} with step {backtest_window_step}s")
+
+                studies = []
+                for window_idx in range(num_windows):
+                    window_start = start_time + (window_idx * backtest_window_step)
+                    window_end = window_start + backtest_window_size
+                    window_human_start = datetime.datetime.fromtimestamp(window_start).strftime('%Y-%m-%d %H:%M:%S')
+                    window_human_end = datetime.datetime.fromtimestamp(window_end).strftime('%Y-%m-%d %H:%M:%S')
+                    
+                    logger.info(f"Processing window {window_idx + 1}/{num_windows}: {window_human_start} to {window_human_end}")
+                    
+                    study_name_suffix = self.config.get("study_name_suffix", "")
+                    force_new_study = self.config.get("force_new_study", "")
+                    study_name = f"{self.name.replace(' ', '_').lower()}_{trading_pair}_{backtesting_interval}_{self.config['n_trials']}_{study_name_suffix}_window_{window_idx}"
+                    if force_new_study:
+                        study_name = f"{study_name}_{task_start_time:.0f}"
                 
-                optimize_start_time = time.perf_counter()
-                study_name_suffix = self.config.get("study_name_suffix", "")
-                force_new_study = self.config.get("force_new_study", "")
-                logger.info(f"Starting optimization with {self.config['n_trials']} trials for {trading_pair}")
-                study_name = f"pmm_simple_{trading_pair}_{backtesting_interval}_{self.config['n_trials']}_{study_name_suffix}"
-                if force_new_study:
-                    study_name = f"{study_name}_{optimize_start_time:.0f}"
-                
-                debug_trial = self.config.get("debug_trial", False)
-                if debug_trial:
-                    best_trial = await optimizer.repeat_trial(
-                        study_name=study_name,
-                        trial_number=debug_trial,
-                        config_generator=config_generator
+                    optimize_start_time = time.perf_counter()
+                    config_generator = PMMSimpleConfigGenerator(
+                        start_date=pd.to_datetime(window_start, unit="s"),
+                        end_date=pd.to_datetime(window_end, unit="s"),
+                        config={**self.config, "trading_pair": trading_pair}
                     )
-                else:
-                    best_trial = await optimizer.optimize(
-                        study_name=study_name,
-                        config_generator=config_generator, 
-                        n_trials=self.config["n_trials"]
-                    )
-                
-                optimize_duration = time.perf_counter() - optimize_start_time
-                logger.info(f"Optimization completed in {optimize_duration:.2f} seconds for {trading_pair}")
-                
-                # Save the best configuration to YAML
-                best_config_path = root_path / "config" / "generated" / f"{study_name}.yml"
-                best_config_path.parent.mkdir(parents=True, exist_ok=True)
-                
-                await optimizer.save_best_config_to_yaml(
-                    study_name=study_name, 
-                    output_path=str(best_config_path.absolute()),
-                    config_generator=config_generator
-                )
-                
+                    
+                    logger.debug(f"Starting optimization with {self.config['n_trials']} trials for {trading_pair} window {window_idx + 1}")     
+                    debug_trial = self.config.get("debug_trial", False)
+                    if debug_trial:
+                        study = await optimizer.repeat_trial(
+                            study_name=study_name,
+                            trial_number=debug_trial,
+                            config_generator=config_generator
+                        )
+                    else:
+                        study = await optimizer.optimize(
+                            study_name=study_name,
+                            config_generator=config_generator, 
+                            n_trials=self.config["n_trials"]
+                        )
+                    studies.append((study, window_start, window_idx))
+                    optimize_duration = time.perf_counter() - optimize_start_time
+                    logger.debug(f"Optimization completed in {optimize_duration:.1f} seconds for {trading_pair} window {window_idx + 1}")
+                    
+
+                # Save all optimal configurations for this trading pair to CSV
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+                labels_file_name = f"{trading_pair.replace('-', '_')}_optimal_configs_{timestamp}.csv"
+                labels_file = root_path / "data" / "labels" / labels_file_name
+                with open(labels_file, 'w') as f:
+                    # Create DataFrame with study parameters
+                    try:
+                        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)  # Non-blocking exclusive lock
+                        data = []
+                        for study, window_start, window_idx in studies:
+                            row = study.best_trial.params.copy()
+                            row['value'] = study.best_trial.value
+                            row['window_start'] = pd.to_datetime(window_start, unit='s')
+                            data.append(row)
+                        df = pd.DataFrame(data)
+                        df.set_index('window_start', inplace=True)
+                        df.to_csv(f)
+                        logger.info(f"Saved {len(studies)} optimal configurations to {labels_file}")
+                    except BlockingIOError:
+                        logger.debug(f"Skipping file save as another process has the lock: {labels_file}")
+                    except Exception as e:
+                        logger.error(f"Error saving configurations: {str(e)}")
+                    finally:
+                        fcntl.flock(f, fcntl.LOCK_UN)  # Release lock
+                    
             except Exception as e:
                 logger.error(f"Error processing {trading_pair}: {str(e)}")
                 logger.error(traceback.format_exc())
             
             pair_duration = time.perf_counter() - pair_start_time
-            logger.info(f"Completed {trading_pair} in {pair_duration:.2f} seconds with best_trial value {best_trial.value}")
+            logger.info(f"Completed {trading_pair} in {pair_duration:.2f} seconds with best_trial value {study.best_trial.value}")
         
-        total_duration = time.time() - start_time
+        # total_duration = time.perf_counter() - task_start_time
         # logger.info(f"PMM Simple backtesting task completed in {total_duration:.2f} seconds")
 
 
@@ -202,7 +228,7 @@ async def main():
     )
     # Run from command line with: python -m tasks.backtesting.pmm_simple_backtesting_task --config config/pmm_simple_backtesting_task.yml
     config = BaseTask.load_single_task_config()
-    task = PMMSimpleBacktestingTask("PMM Simple Backtesting", None, config)
+    task = PMMLabelGenerationTask("PMM Simple Label Generation", None, config)
     await task.run_once()
 
 if __name__ == "__main__":
