@@ -115,7 +115,8 @@ class PMMSimpleBacktestingTask(BaseTask):
                                      resolution=backtesting_interval,
                                      db_client=self.config_helper.create_timescale_client(),
                                      storage_name=StrategyOptimizer.get_storage_name("postgres", **self.config),
-                                     custom_objective= lambda _, x: x["total_volume"] if x["net_pnl_quote"] > 0 else 0.0
+                                     custom_objective= lambda _, x: x["total_volume"] if x["net_pnl_quote"] > 0 else 0.0,
+                                     backtest_offset=self.config.get("backtest_offset", 0)
                                     )
         logger.info(f"StrategyOptimizer initialized with root_path: {root_path.absolute()}")
         
