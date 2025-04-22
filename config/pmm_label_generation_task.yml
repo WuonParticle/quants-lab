@@ -1,0 +1,25 @@
+# PMM Simple Backtesting Task Configuration
+---
+tasks:
+  PMM_Simple_Backtesting:
+    task_class: "tasks.backtesting.pmm_label_generation_task.PMMLabelGenerationTask"
+    config:
+      # Backtesting parameters
+      connector_name: "okx"
+      backtesting_interval: "1s"  
+      interval: "1m"  
+      # Time range configuration - use either absolute or relative time range
+      # Absolute time range (takes precedence if both are provided)
+      start_time: "2025-04-08 12:00:00"  # Optional: Start time in YYYY-MM-DD HH:MM:SS format
+      end_time: "2025-04-08 13:00:00"    # Optional: End time in YYYY-MM-DD HH:MM:SS format
+      backtest_offset: 1
+      backtest_window_size: 60
+      
+      n_trials: 1000
+      total_amount_quote: 100
+      # study_name_suffix: "cooldown_test"
+      # debug_trial: 742
+      # Trading pairs to backtest
+      selected_pairs:
+        - "ADA-USDT"
+        
