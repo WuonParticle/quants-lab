@@ -104,7 +104,8 @@ class PMMSimpleBacktestingTask(BaseTask):
         filtered_config = {k: v for k, v in self.config.items() if k not in ['timescale_config', 'postgres_config', 'mongo_config']}
         logger.info(f"Starting PMMSimpleBacktestingTask at {datetime.datetime.now()} with config: {filtered_config}")
         
-        root_path = Path(os.getenv("root_path") or self.config.get("root_path", "../.."))
+        # Get the path relative to this file's location
+        root_path = Path(os.getenv("root_path") or self.config.get("root_path", Path(__file__).parent / "../.."))
         (root_path / "data" / "candles").mkdir(parents=True, exist_ok=True)
         (root_path / "data" / "backtesting").mkdir(parents=True, exist_ok=True)
         
@@ -148,9 +149,13 @@ class PMMSimpleBacktestingTask(BaseTask):
                 )
                 
                 optimize_start_time = time.perf_counter()
+                study_name_suffix = self.config.get("study_name_suffix", "")
+                force_new_study = self.config.get("force_new_study", "")
                 logger.info(f"Starting optimization with {self.config['n_trials']} trials for {trading_pair}")
-                # study_name = f"pmm_simple_{trading_pair}_{backtesting_interval}_{self.config['n_trials']}_{optimize_start_time:.0f}"
-                study_name = f"pmm_simple_{trading_pair}_{backtesting_interval}_{self.config['n_trials']}"
+                study_name = f"pmm_simple_{trading_pair}_{backtesting_interval}_{self.config['n_trials']}_{study_name_suffix}"
+                if force_new_study:
+                    study_name = f"{study_name}_{optimize_start_time:.0f}"
+                
                 debug_trial = self.config.get("debug_trial", False)
                 if debug_trial:
                     best_trial = await optimizer.repeat_trial(
@@ -168,9 +173,8 @@ class PMMSimpleBacktestingTask(BaseTask):
                 optimize_duration = time.perf_counter() - optimize_start_time
                 logger.info(f"Optimization completed in {optimize_duration:.2f} seconds for {trading_pair}")
                 
-                today_str = datetime.datetime.now().strftime("%Y-%m-%d")
                 # Save the best configuration to YAML
-                best_config_path = root_path / "config" / "generated" / f"pmm_simple_{trading_pair.replace('-', '_')}_{today_str}.yml"
+                best_config_path = root_path / "config" / "generated" / f"{study_name}.yml"
                 best_config_path.parent.mkdir(parents=True, exist_ok=True)
                 
                 await optimizer.save_best_config_to_yaml(
