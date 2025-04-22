@@ -3,7 +3,6 @@ services:
     image: hummingbot/quants-lab:latest
     volumes:
       - .:/quants-lab
-      - ./config:/quants-lab/config
     # env_file:
     #  - .env
     network_mode: host

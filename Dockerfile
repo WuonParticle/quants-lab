@@ -9,15 +9,8 @@ RUN apt-get update && \
 # Set the working directory in the container
 WORKDIR /quants-lab
 
-# Copy the current directory contents and the Conda environment file into the container
-COPY core/ core/
+# Create the environment from the environment.yml file (do first to avoid invalidating the environment layer cache)
 COPY environment.yml .
-COPY research_notebooks/ research_notebooks/
-COPY controllers/ controllers/
-COPY tasks/ tasks/
-COPY conf/ conf/
-
-# Create the environment from the environment.yml file
 # If cchardet fails, we'll install it separately
 RUN conda env create -f environment.yml
 
@@ -27,9 +20,6 @@ RUN conda env create -f environment.yml
 # Make RUN commands use the new environment
 SHELL ["conda", "run", "-n", "quants-lab", "/bin/bash", "-c"]
 
-# Copy task configurations
-COPY config/tasks.yml /quants-lab/config/tasks.yml
-
 # Copy and make scripts executable
 COPY scripts/ scripts/
 RUN chmod +x scripts/*.sh
@@ -37,7 +27,7 @@ RUN chmod +x scripts/*.sh
 # Update GLIBCXX if needed (if you get an error about missing GLIBCXX_3.4.32)
 # RUN ./scripts/update_glibcxx.sh
 
-# Create wheels directory and handle wheel installation
+# Create wheels directory and handle wheel installation (for utilizing local hummingbot version)
 RUN mkdir -p wheels/
 COPY wheels/ wheels/
 
@@ -49,6 +39,16 @@ RUN if [ -n "$(find wheels/ -name 'hummingbot-*.whl' 2>/dev/null)" ]; then \
     else \
     echo "No local Hummingbot wheel found, using version from environment.yml"; \
     fi
+
+    
+
+# Uncomment if wanting to deploy somewhere but but since the local volume is mounted in compose file, only useful for remote deployment) 
+# COPY config/*.yml config/
+# COPY core/ core/
+# COPY research_notebooks/ research_notebooks/
+# COPY controllers/ controllers/
+# COPY tasks/ tasks/
+# COPY conf/ conf/
 
 # Default command now uses the task runner
 CMD ["conda", "run", "--no-capture-output", "-n", "quants-lab", "python3", "run_tasks.py"]
