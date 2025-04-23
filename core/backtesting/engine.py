@@ -66,34 +66,33 @@ class BacktestingEngine:
                 except Exception as e:
                     logger.error(f"Error loading {file}: {e}")
 
-    async def load_candles_cache_for_connector_pair_from_timescale(self, connector_name: str, trading_pair: str, intervals: list = None, start_time: int = None, end_time: int = None, timescale_client: TimescaleClient = None):
+    async def load_candles_cache_for_connector_pair_from_timescale(self, connector_name: str,
+                                                                trading_pair: str,
+                                                                intervals: list = ["1m", "5m", "15m", "1h", "4h", "1d"],
+                                                                start_time: int = None,
+                                                                end_time: int = None,
+                                                                timescale_client: TimescaleClient = None):
         """
         Load candles directly from TimescaleDB for a specific connector and trading pair.
         
         Args:
             connector_name: Name of the connector
             trading_pair: The trading pair to load candles for
-            root_path: Root path for storing cache files (unused)
             intervals: List of intervals to load (e.g., ["1m", "5m", "15m", "1h"])
-            lookback_days: Number of days to look back for data
-            timescale_config: TimescaleDB configuration dictionary with host, port, user, password, db_name
+            start_time: Start time to load candles from
+            end_time: End time to load candles to
+            timescale_client: TimescaleDB client
             
         Returns:
             bool: True if any candles were loaded, False otherwise
         """
-        if not intervals:
-            intervals = ["1m", "5m", "15m", "1h", "4h", "1d"]
-            
         try:
-            # Connect to database
+            # Connect to database (now with built-in retry in TimescaleClient)
             await timescale_client.connect()
-            
-            loaded_any = False
-            
+            candle_dfs = [] 
             # Process each interval
             for interval in intervals:
                 try:
-                    
                     # Get candles from database
                     candles = await timescale_client.get_candles(
                         connector_name=connector_name,
@@ -121,22 +120,17 @@ class BacktestingEngine:
                     
                     feed_key = f"{connector_name}_{trading_pair}_{interval}"
                     self._bt_engine.backtesting_data_provider.candles_feeds[feed_key] = candles_df
-                    
+                    candle_dfs.append(candles_df)
                     logger.info(f"Loaded {len(candles_df)} {interval} candles for {connector_name}_{trading_pair}")
-                    loaded_any = True
+                
                 except Exception as e:
-                    logger.error(f"Error loading {interval} candles for {connector_name}_{trading_pair}: {e}")
+                    logger.error(f"Error loading {interval} candles for {connector_name}_{trading_pair}: {str(e)}")
                     logger.error(traceback.format_exc())
-                    
-            # Close database connection
+                    raise
+            
+            return candle_dfs
+        finally:
             await timescale_client.close()
-            
-            return loaded_any
-            
-        except Exception as e:
-            logger.error(f"Error loading candles from TimescaleDB: {e}")
-            logger.error(traceback.format_exc())
-            return False
 
     def get_controller_config_instance_from_dict(self, config: Dict):
         return BacktestingEngineBase.get_controller_config_instance_from_dict(
