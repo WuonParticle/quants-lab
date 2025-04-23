@@ -17,7 +17,7 @@ import fcntl
 
 from controllers.market_making.pmm_simple import PMMSimpleController, PMMSimpleConfig
 from core.backtesting.optimizer import StrategyOptimizer, BacktestingConfig, BaseStrategyConfigGenerator
-from core.task_base import BaseTask
+from core.task_base import BaseTask, LeaderElectedTask
 from core.task_config_helpers import TaskConfigHelper
 
 load_dotenv()
@@ -89,31 +89,27 @@ class PMMSimpleConfigGenerator(BaseStrategyConfigGenerator):
         return BacktestingConfig(config=config, start=self.start, end=self.end)
 
 
-class PMMLabelGenerationTask(BaseTask):
-    async def execute(self):
+class PMMLabelGenerationTask(LeaderElectedTask):
+    async def task_execute(self):
         task_start_time = time.perf_counter()
         self.config_helper = TaskConfigHelper(self.config)
         random.seed(42)
         filtered_config = {k: v for k, v in self.config.items() if k not in ['timescale_config', 'postgres_config', 'mongo_config']}
         logger.info(f"Starting PMMLabelGenerationTask at {datetime.datetime.now()} with config: {filtered_config}")
         
-        # Get the path relative to this file's location
-        root_path = Path(os.getenv("root_path") or self.config.get("root_path", Path(__file__).parent / "../.."))
-        (root_path / "data" / "candles").mkdir(parents=True, exist_ok=True)
-        (root_path / "data" / "backtesting").mkdir(parents=True, exist_ok=True)
-        (root_path / "data" / "labels").mkdir(parents=True, exist_ok=True)
+        (self.root_path / "data" / "labels").mkdir(parents=True, exist_ok=True)
+        # Utilze a throwaway database as we are creating a huge number of studies
+        self.config["postgres_config"]["database"] = "throwaway_optuna_db"
         
         backtesting_interval = self.config.get("backtesting_interval", "1s")
         candle_interval = self.config.get("candle_interval", "1m")
-        optimizer = StrategyOptimizer(root_path=root_path.absolute(),
-                                     resolution=backtesting_interval,
-                                     db_client=self.config_helper.create_timescale_client(),
-                                    #  ?????? don't use postgres as we are creating a huge number of studies
-                                    #  storage_name=StrategyOptimizer.get_storage_name("postgres", **self.config),
-                                     custom_objective= lambda _, x: x["total_volume"] if x["net_pnl_quote"] > 0 else 0.0,
-                                     backtest_offset=self.config.get("backtest_offset", 0)
+        optimizer = StrategyOptimizer(root_path=self.root_path.absolute(),
+                                    resolution=backtesting_interval,
+                                    db_client=self.config_helper.create_timescale_client(),
+                                     storage_name=StrategyOptimizer.get_storage_name("postgres", **self.config),
+                                    custom_objective= lambda _, x: x["total_volume"] if x["net_pnl_quote"] > 0 else 0.0,
+                                    backtest_offset=self.config.get("backtest_offset", 0)
                                     )
-        logger.info(f"StrategyOptimizer initialized with root_path: {root_path.absolute()}")
         
         selected_pairs = self.config.get("selected_pairs")
         connector_name = self.config.get("connector_name")
@@ -121,6 +117,7 @@ class PMMLabelGenerationTask(BaseTask):
         force_new_study = self.config.get("force_new_study", False)
         debug_study_name = self.config.get("debug_study", None)
         debug_trial = self.config.get("debug_trial", False)
+        n_trials = self.config["n_trials"]
         
         for i, trading_pair in enumerate(selected_pairs):
             pair_start_time = time.perf_counter()
@@ -156,14 +153,11 @@ class PMMLabelGenerationTask(BaseTask):
                     
                     logger.info(f"Processing window {window_idx + 1}/{num_windows}: {window_human_start} to {window_human_end}")
                     if debug_study_name is None:
-                        study_name = f"{self.name.replace(' ', '_').lower()}_{trading_pair}_{backtesting_interval}_{self.config['n_trials']}_{study_name_suffix}_{window_start}"
+                        study_name = f"{self.name.replace(' ', '_').lower()}_{trading_pair}_{backtesting_interval}_{n_trials}_{study_name_suffix}_{window_start:.0f}"
                         if force_new_study:
                             study_name = f"{study_name}_{task_start_time:.0f}"
                     else:
-                        # Extract window_start from study_name
                         try:
-                            # The study_name format is: name_trading_pair_interval_trials_suffix_window_start
-                            # Split by underscore and get the last part before any additional suffixes
                             study_name = debug_study_name
                             parts = study_name.split('_')
                             window_start = float(parts[-1].split('.')[0])  # Remove any decimal part
@@ -182,7 +176,7 @@ class PMMLabelGenerationTask(BaseTask):
                         config={**self.config, "trading_pair": trading_pair}
                     )
                     
-                    logger.debug(f"Starting optimization with {self.config['n_trials']} trials for {trading_pair} window {window_idx + 1}")     
+                    logger.debug(f"Starting optimization with {n_trials} trials for {trading_pair} window {window_idx + 1}")     
                     if debug_trial:
                         study = await optimizer.repeat_trial(
                             study_name=study_name,
@@ -193,21 +187,21 @@ class PMMLabelGenerationTask(BaseTask):
                         study = await optimizer.optimize(
                             study_name=study_name,
                             config_generator=config_generator, 
-                            n_trials=self.config["n_trials"]
+                            n_trials=n_trials
                         )
                     studies.append((study, window_start, window_idx))
                     optimize_duration = time.perf_counter() - optimize_start_time
                     logger.debug(f"Optimization completed in {optimize_duration:.1f} seconds for {trading_pair} window {window_idx + 1}")
                     
 
-                # Save all optimal configurations for this trading pair to CSV
-                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
-                labels_file_name = f"{trading_pair.replace('-', '_')}_optimal_configs_{timestamp}.csv"
-                labels_file = root_path / "data" / "labels" / labels_file_name
-                with open(labels_file, 'w') as f:
-                    # Create DataFrame with study parameters
+                # Save all optimal configurations for this trading pair to CSV - only if we're the leader
+                if self.is_leader:
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+                    labels_file_name = f"{trading_pair.replace('-', '_')}_optimal_configs_{timestamp}.csv"
+                    labels_file = self.root_path / "data" / "labels" / labels_file_name
+                    logger.info(f"Leader is saving optimal configurations to {labels_file}")
+                    
                     try:
-                        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)  # Non-blocking exclusive lock
                         data = []
                         for study, window_start, window_idx in studies:
                             row = study.best_trial.params.copy()
@@ -216,14 +210,10 @@ class PMMLabelGenerationTask(BaseTask):
                             data.append(row)
                         df = pd.DataFrame(data)
                         df.set_index('window_start', inplace=True)
-                        df.to_csv(f)
+                        df.to_csv(labels_file)
                         logger.info(f"Saved {len(studies)} optimal configurations to {labels_file}")
-                    except BlockingIOError:
-                        logger.debug(f"Skipping file save as another process has the lock: {labels_file}")
                     except Exception as e:
                         logger.error(f"Error saving configurations: {str(e)}")
-                    finally:
-                        fcntl.flock(f, fcntl.LOCK_UN)  # Release lock
                     
             except Exception as e:
                 logger.error(f"Error processing {trading_pair}: {str(e)}")
@@ -231,9 +221,6 @@ class PMMLabelGenerationTask(BaseTask):
             
             pair_duration = time.perf_counter() - pair_start_time
             logger.info(f"Completed {trading_pair} in {pair_duration:.2f} seconds with best_trial value {study.best_trial.value}")
-        
-        # total_duration = time.perf_counter() - task_start_time
-        # logger.info(f"PMM Simple backtesting task completed in {total_duration:.2f} seconds")
 
 
 async def main():
