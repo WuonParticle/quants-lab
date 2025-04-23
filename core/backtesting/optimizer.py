@@ -1,5 +1,6 @@
 import datetime
 from decimal import Decimal
+import functools
 import logging
 import math
 import os.path
@@ -9,7 +10,7 @@ import time
 import traceback
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Callable, List, Optional, Type, Dict
+from typing import Callable, List, Optional, Type, Dict, Set
 
 import optuna
 from dotenv import load_dotenv
@@ -123,6 +124,7 @@ class StrategyOptimizer:
         self._custom_objective = custom_objective
         self.seed = seed 
         self.backtest_offset = backtest_offset
+
     @classmethod
     def get_storage_name(cls, engine, create_db_if_not_exists: bool = True, **kwargs):
         """
@@ -190,7 +192,17 @@ class StrategyOptimizer:
             timescale_client=self._db_client
         )
 
-    def get_all_study_names(self):
+    @functools.cached_property
+    def all_study_names(self) -> set[str]:
+        """
+        Get all the study names available in the database, using Python's built-in caching.
+
+        Returns:
+            Set[str]: A set of study names.
+        """
+        return set(optuna.get_all_study_names(self._storage_name))
+        
+    def get_all_study_names(self) -> List[str]:
         """
         Get all the study names available in the database.
 
@@ -198,6 +210,17 @@ class StrategyOptimizer:
             List[str]: A list of study names.
         """
         return optuna.get_all_study_names(self._storage_name)
+        
+    def reset_study_cache(self) -> None:
+        """
+        Reset the cached study names, forcing the next access to reload from database.
+        
+        Use this when you know the study list has changed outside of this instance's operations.
+        """
+        try:
+            del self.__dict__['all_study_names']
+        except KeyError:
+            pass
 
     def get_study(self, study_name: str):
         """
@@ -255,14 +278,20 @@ class StrategyOptimizer:
         Returns:
             optuna.Study: The created or loaded study.
         """
-        return optuna.create_study(
+        # NOTE: a reloaded sampler may not be reproducible
+        sampler = optuna.samplers.TPESampler(seed=self.seed)
+        if load_if_exists and study_name in self.all_study_names:
+            # Study exists and we want to load it, so load directly instead of trying to create
+            return optuna.load_study(study_name=study_name, storage=self._storage_name, sampler=sampler)
+            
+        study = optuna.create_study(
             direction=direction,
             study_name=study_name,
             storage=self._storage_name,
-            sampler=optuna.samplers.TPESampler(seed = self.seed),
+            sampler=sampler,
             load_if_exists=load_if_exists,
-            
         )
+        return study
 
     async def optimize(self, study_name: str, config_generator: Type[BaseStrategyConfigGenerator], n_trials: int = 100,
                        load_if_exists: bool = True):
