@@ -104,7 +104,7 @@ class PMMLabelGenerationTask(BaseTask):
         (root_path / "data" / "labels").mkdir(parents=True, exist_ok=True)
         
         backtesting_interval = self.config.get("backtesting_interval", "1s")
-        candle_interval = self.config.get("interval", "1m")
+        candle_interval = self.config.get("candle_interval", "1m")
         optimizer = StrategyOptimizer(root_path=root_path.absolute(),
                                      resolution=backtesting_interval,
                                      db_client=self.config_helper.create_timescale_client(),
@@ -117,6 +117,10 @@ class PMMLabelGenerationTask(BaseTask):
         
         selected_pairs = self.config.get("selected_pairs")
         connector_name = self.config.get("connector_name")
+        study_name_suffix = self.config.get("study_name_suffix", "")
+        force_new_study = self.config.get("force_new_study", False)
+        debug_study_name = self.config.get("debug_study", None)
+        debug_trial = self.config.get("debug_trial", False)
         
         for i, trading_pair in enumerate(selected_pairs):
             pair_start_time = time.perf_counter()
@@ -141,7 +145,8 @@ class PMMLabelGenerationTask(BaseTask):
                 total_duration = end_time - start_time
                 num_windows = int(total_duration / backtest_window_step)
                 logger.info(f"Creating {num_windows} studies for {trading_pair} with step {backtest_window_step}s")
-
+                if debug_study_name is not None:
+                    num_windows = 1
                 studies = []
                 for window_idx in range(num_windows):
                     window_start = start_time + (window_idx * backtest_window_step)
@@ -150,12 +155,25 @@ class PMMLabelGenerationTask(BaseTask):
                     window_human_end = datetime.datetime.fromtimestamp(window_end).strftime('%Y-%m-%d %H:%M:%S')
                     
                     logger.info(f"Processing window {window_idx + 1}/{num_windows}: {window_human_start} to {window_human_end}")
-                    
-                    study_name_suffix = self.config.get("study_name_suffix", "")
-                    force_new_study = self.config.get("force_new_study", "")
-                    study_name = f"{self.name.replace(' ', '_').lower()}_{trading_pair}_{backtesting_interval}_{self.config['n_trials']}_{study_name_suffix}_window_{window_idx}"
-                    if force_new_study:
-                        study_name = f"{study_name}_{task_start_time:.0f}"
+                    if debug_study_name is None:
+                        study_name = f"{self.name.replace(' ', '_').lower()}_{trading_pair}_{backtesting_interval}_{self.config['n_trials']}_{study_name_suffix}_{window_start}"
+                        if force_new_study:
+                            study_name = f"{study_name}_{task_start_time:.0f}"
+                    else:
+                        # Extract window_start from study_name
+                        try:
+                            # The study_name format is: name_trading_pair_interval_trials_suffix_window_start
+                            # Split by underscore and get the last part before any additional suffixes
+                            study_name = debug_study_name
+                            parts = study_name.split('_')
+                            window_start = float(parts[-1].split('.')[0])  # Remove any decimal part
+                            window_end = window_start + backtest_window_size
+                            logger.info(f"Extracted window_start={window_start} and window_end={window_end} from study_name")
+                            if force_new_study:
+                                study_name = f"{study_name}_{task_start_time:.0f}"
+                        except (IndexError, ValueError) as e:
+                            logger.error(f"Failed to extract window_start from study_name: {study_name}. Error: {str(e)}")
+                            raise
                 
                     optimize_start_time = time.perf_counter()
                     config_generator = PMMSimpleConfigGenerator(
@@ -165,7 +183,6 @@ class PMMLabelGenerationTask(BaseTask):
                     )
                     
                     logger.debug(f"Starting optimization with {self.config['n_trials']} trials for {trading_pair} window {window_idx + 1}")     
-                    debug_trial = self.config.get("debug_trial", False)
                     if debug_trial:
                         study = await optimizer.repeat_trial(
                             study_name=study_name,
