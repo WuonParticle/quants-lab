@@ -290,7 +290,9 @@ class StrategyOptimizer:
             config_generator (Type[BaseStrategyConfigGenerator]): A configuration generator class instance.
             load_if_exists (bool): Whether to load an existing study if available.
         """
+        global logger
         study = self._create_study(study_name, load_if_exists=load_if_exists)
+        logger = logging.getLogger(study.study_name)
         return await self._optimize_async_custom_configs(study, config_generator)
 
     async def _optimize_async(self, study: optuna.Study, config_generator: Type[BaseStrategyConfigGenerator],
@@ -308,7 +310,6 @@ class StrategyOptimizer:
             logger.debug(f"Starting trial {trial.number}/{n_trials}")
             trial_attempts += 1
             try:
-                # Run the async objective function and get the result
                 value = await self._async_objective(trial, config_generator)
                 duration = time.perf_counter() - start_time
                 logger.info(f"Trial {trial.number} completed with value: {value:.2f} in {duration:.1f} seconds")
