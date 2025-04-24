@@ -1,14 +1,13 @@
 services:
-  parallel-task-runner:
+  worker:
     image: hummingbot/quants-lab:latest
     volumes:
       - .:/quants-lab
     network_mode: host
+    environment:
+      - TOTAL_WORKERS=${TOTAL_WORKERS:-1}
+      - TASK_CONFIG=${TASK_CONFIG:-config/tasks.yml}
     command: conda run --no-capture-output -n quants-lab python3 run_tasks.py --config ${TASK_CONFIG:-config/tasks.yml}
-    deploy:
-      restart_policy:
-        condition: on-failure
-        max_attempts: 1
     logging:
       driver: "json-file"
       options:

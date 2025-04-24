@@ -63,8 +63,20 @@ run-parallel:
 		echo "Usage: make run-parallel instances=<number_of_instances> config=<task_config_file>"; \
 		exit 1; \
 	fi
-	TASK_CONFIG=config/$(config) docker compose -f docker-compose-parallel.yml up -d --scale parallel-task-runner=$(instances); \
+	@mkdir -p tmp
+	@echo 'services:' > tmp/docker-compose.worker-override.yml
+	@for i in $$(seq 0 $$(expr $(instances) - 1)); do \
+		echo "  worker-$$i:" >> tmp/docker-compose.worker-override.yml; \
+		echo "    extends:" >> tmp/docker-compose.worker-override.yml; \
+		echo "      service: worker" >> tmp/docker-compose.worker-override.yml; \
+		echo "      file: ../docker-compose-parallel.yml" >> tmp/docker-compose.worker-override.yml; \
+		echo "    container_name: qlp-worker-$$i" >> tmp/docker-compose.worker-override.yml; \
+		echo "    environment:" >> tmp/docker-compose.worker-override.yml; \
+		echo "      - WORKER_ID=$$i" >> tmp/docker-compose.worker-override.yml; \
+	done
+	TASK_CONFIG=config/$(config) TOTAL_WORKERS=$(instances) docker compose -p quants-lab-parallel -f tmp/docker-compose.worker-override.yml up -d
 
 # Stop parallel task runners
 stop-parallel:
-	docker compose -f docker-compose-parallel.yml down
+	docker compose -p quants-lab-parallel -f tmp/docker-compose.worker-override.yml down
+	@rm -f tmp/docker-compose.worker-override.yml
