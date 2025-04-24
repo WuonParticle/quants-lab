@@ -140,12 +140,12 @@ class PMMLabelGenerationTask(ParallelWorkerTask):
                 if debug_study_name is not None:
                     num_windows = 1
                 
-                
                 # Distribute windows among workers using the should_process_item method
                 worker_windows = [idx for idx in range(num_windows) if self.should_process_item(idx)]
                 logger.info(f"Worker {self.worker_id+1}/{self.total_workers} will process {len(worker_windows)} windows")
                 
                 # The leader needs to collect all studies for persisting the results
+                # TODO: having each worker collect all trials is pretty slow. Optuna is not designed for this use case.
                 if self.is_leader:
                     worker_windows.extend([idx for idx in range(num_windows) if not self.should_process_item(idx)])
                 should_clear_study_cache = self.is_leader
@@ -228,7 +228,7 @@ class PMMLabelGenerationTask(ParallelWorkerTask):
                 logger.error(f"Error processing {trading_pair}: {str(e)}")
                 logger.error(traceback.format_exc())
             finally:
-                await optimizer._db_client.close()
+                await optimizer.dispose()
             
             pair_duration = time.perf_counter() - pair_start_time
             logger.info(f"Completed {trading_pair} in {pair_duration:.2f} seconds with best_trial value {study.best_trial.value if len(studies) > 0 else 'N/A'}")

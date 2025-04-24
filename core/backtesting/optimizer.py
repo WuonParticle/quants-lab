@@ -119,7 +119,7 @@ class StrategyOptimizer:
         self._db_client = db_client
         self.resolution = resolution
         self.root_path = root_path
-        self._storage_name = storage_name if storage_name else self.get_storage_name(engine="sqlite", root_path=root_path)
+        self._storage = optuna.storages.get_storage(storage_name if storage_name else self.get_storage_name(engine="sqlite", root_path=root_path))
         self.dashboard_process = None
         self._custom_objective = custom_objective
         self.seed = seed 
@@ -171,7 +171,7 @@ class StrategyOptimizer:
         Returns:
             Set[str]: A set of study names.
         """
-        return set(optuna.get_all_study_names(self._storage_name))
+        return set(optuna.get_all_study_names(self._storage))
         
     def get_all_study_names(self) -> List[str]:
         """
@@ -180,7 +180,7 @@ class StrategyOptimizer:
         Returns:
             List[str]: A list of study names.
         """
-        return optuna.get_all_study_names(self._storage_name)
+        return optuna.get_all_study_names(self._storage)
         
     def reset_study_cache(self) -> None:
         """
@@ -193,9 +193,9 @@ class StrategyOptimizer:
         except KeyError:
             pass
 
-    def get_study(self, study_name: str):
+    def get_study(self, study_name: str) -> optuna.Study:
         """
-        Get the study object for a given study name.
+        Get an existing study or create a new one.
 
         Args:
             study_name (str): The name of the study.
@@ -203,7 +203,7 @@ class StrategyOptimizer:
         Returns:
             optuna.Study: The study object.
         """
-        return optuna.load_study(study_name=study_name, storage=self._storage_name)
+        return optuna.load_study(study_name=study_name, storage=self._storage)
 
     def get_study_trials_df(self, study_name: str):
         """
@@ -253,12 +253,12 @@ class StrategyOptimizer:
         sampler = optuna.samplers.TPESampler(seed=self.seed)
         if load_if_exists and study_name in self.all_study_names:
             # Study exists and we want to load it, so load directly instead of trying to create
-            return optuna.load_study(study_name=study_name, storage=self._storage_name, sampler=sampler)
+            return optuna.load_study(study_name=study_name, storage=self._storage, sampler=sampler)
             
         study = optuna.create_study(
             direction=direction,
             study_name=study_name,
-            storage=self._storage_name,
+            storage=self._storage,
             sampler=sampler,
             load_if_exists=load_if_exists,
         )
@@ -280,11 +280,7 @@ class StrategyOptimizer:
         study = self._create_study(study_name, load_if_exists=load_if_exists)
         logger = logging.getLogger(study.study_name)
         logger.debug(f"About to start optimizing {study_name} with {n_trials} trials.")
-        try:
-            return await self._optimize_async(study, config_generator, n_trials=n_trials)
-        finally:
-            # Optuna uses a scoped session per study so 
-            study._storage._backend.engine.dispose()
+        return await self._optimize_async(study, config_generator, n_trials=n_trials)
 
     async def optimize_custom_configs(self, study_name: str, config_generator: Type[BaseStrategyConfigGenerator],
                                       load_if_exists: bool = True):
@@ -299,10 +295,7 @@ class StrategyOptimizer:
         global logger
         study = self._create_study(study_name, load_if_exists=load_if_exists)
         logger = logging.getLogger(study.study_name)
-        try:
-            return await self._optimize_async_custom_configs(study, config_generator)
-        finally:
-            study._storage._backend.engine.dispose()
+        return await self._optimize_async_custom_configs(study, config_generator)
 
     async def _optimize_async(self, study: optuna.Study, config_generator: Type[BaseStrategyConfigGenerator],
                               n_trials: int):
@@ -476,7 +469,7 @@ class StrategyOptimizer:
         """
         Launch the Optuna dashboard for visualization.
         """
-        self.dashboard_process = subprocess.Popen(["optuna-dashboard", self._storage_name])
+        self.dashboard_process = subprocess.Popen(["optuna-dashboard", self._storage])
 
     def kill_optuna_dashboard(self):
         """
@@ -531,7 +524,14 @@ class StrategyOptimizer:
         except Exception as e:
             logger.error(f"Error in debug trial {trial_number}: {str(e)}")
             traceback.print_exc()
-            
+    
+    async def dispose(self):
+        """
+        Dispose of the storage.
+        """
+        await self._db_client.close()
+        self._storage._backend.engine.dispose()
+    
     async def save_best_config_to_yaml(self, study_name: str, output_path: str, config_generator: Type[BaseStrategyConfigGenerator]):
         """
         Save the best configuration from a study to a YAML file.
