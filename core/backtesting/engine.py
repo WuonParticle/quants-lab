@@ -111,13 +111,6 @@ class BacktestingEngine:
                     candles_df.index = pd.to_datetime(candles_df.timestamp, unit='s')
                     candles_df.index.name = None
                     
-                    # Process numeric columns
-                    columns = ['open', 'high', 'low', 'close', 'volume', 'quote_asset_volume',
-                              'n_trades', 'taker_buy_base_volume', 'taker_buy_quote_volume']
-                    for column in columns:
-                        if column in candles_df.columns:
-                            candles_df[column] = pd.to_numeric(candles_df[column])
-                    
                     feed_key = f"{connector_name}_{trading_pair}_{interval}"
                     self._bt_engine.backtesting_data_provider.candles_feeds[feed_key] = candles_df
                     candle_dfs.append(candles_df)
