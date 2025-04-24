@@ -1,0 +1,33 @@
+# DManV3 Hyperparameter Tuning Task Configuration
+---
+tasks:
+  DManV3_Hyperparameter_Tuning:
+    task_class: "tasks.backtesting.dman_v3_hyperparameter_tuning_task.DManV3HyperparameterTuningTask"
+    config:
+      # Backtesting parameters
+      connector_name: "okx"
+      backtesting_interval: "1s"  
+      candle_interval: "1m"  # Interval for DManV3 strategy
+      
+      # Time range configuration - use a broader range for hyperparameter tuning
+      # Avoid using future dates as in the PMM example
+      start_time: "2025-04-08 12:00:00"  
+      end_time: "2025-04-08 23:00:00"
+      
+      # Optimization parameters
+      n_trials: 1001  # Fewer trials than label generation to find good starting values
+      total_amount_quote: 1000
+      leverage: 1
+      study_name_suffix: "hyperparam_tuning"
+      # force_new_study: true  # Create a new study each run
+      
+      # Debug options - uncomment to debug specific trials
+      # debug_trial: 5
+      
+      # Trading pairs to tune hyperparameters for
+      selected_pairs:
+        - ADA-USDT
+        # - BTC-USDT
+        # - KAITO-USDT
+
+    

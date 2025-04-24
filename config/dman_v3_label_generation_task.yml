@@ -1,0 +1,40 @@
+---
+name: DManV3_Label_Generation
+description: Generate optimal DManV3 configurations for different time windows
+type: tasks.backtesting.dman_v3_label_generation_task.DManV3LabelGenerationTask
+cron: "0 0 * * *"  # Run daily at midnight
+enabled: false  # Disable by default until ready to run
+parameters:
+  # Connector and trading parameters
+  connector_name: okx
+  backtesting_interval: "1s"
+  candle_interval: "1m"
+  total_amount_quote: 1000
+  leverage: null  # Set to null for spot trading
+
+  # Time range for backtesting
+  start_time: "2025-04-08 12:00:00"
+  end_time: "2025-04-08 13:00:00"
+  backtest_window_size: 86400  # 1 day in seconds
+  backtest_window_step: 43200  # 12 hours in seconds
+
+  # Optimization parameters
+  n_trials: 50
+  study_name_suffix: "window"
+  force_new_study: false
+
+  # Debug parameters (set to null when not debugging)
+  debug_study: null
+  debug_trial: false
+
+  # Fixed parameters from hyperparameter tuning
+  # These are example values - replace with actual values from hyperparameter tuning
+  dca_spreads: "[0.01, 0.03, 0.06, 0.12]"
+  trailing_stop: "0.015,0.005"  # Format: "activation_price,trailing_delta"
+  activation_bounds: "[0.01, 0.02, 0.03]"
+
+  # Trading pairs to optimize for
+  selected_pairs:
+    - BTC-USDT
+    - ETH-USDT
+    - ADA-USDT
