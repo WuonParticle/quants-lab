@@ -33,3 +33,4 @@ dependencies:
       - psycopg2-binary
       - pyarrow
       - motor>=3.3.2
+      - tenacity

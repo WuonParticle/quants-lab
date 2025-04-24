@@ -2,12 +2,15 @@ import asyncio
 import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Union, Any
+import logging
 
 import asyncpg
 import pandas as pd
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, before_sleep_log
 
 from core.data_structures.candles import Candles
 
+logger = logging.getLogger(__name__)
 INTERVAL_MAPPING = {
     '1s': 's',  # seconds
     '1m': 'T',  # minutes
@@ -34,16 +37,35 @@ class TimescaleClient:
         self.user = user
         self.password = password
         self.database = database
-        self.pool = None
+        self.pool: asyncpg.Pool = None
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((asyncpg.exceptions.InsufficientResourcesError, 
+                                     asyncpg.exceptions.PostgresConnectionError)),
+        before_sleep=before_sleep_log(logger, logging.WARNING)
+    )
     async def connect(self):
-        self.pool = await asyncpg.create_pool(
-            host=self.host,
-            port=self.port,
-            user=self.user,
-            password=self.password,
-            database=self.database
-        )
+        """
+        Connect to the database with retry logic for handling connection issues.
+        
+        Will retry up to 3 times with exponential backoff on InsufficientResourcesError 
+        or PostgresConnectionError (e.g., "too many clients already").
+        """
+        if not self.pool or self.pool.is_closing():
+            self.pool = await asyncpg.create_pool(
+                min_size=1,
+                max_size=10,  # Limit maximum connections
+                host=self.host,
+                port=self.port,
+                user=self.user,
+                password=self.password,
+                database=self.database,
+                # command_timeout=10,  # Add command timeout
+                # timeout=5  # Add connection timeout
+            )
+            logger.debug(f"Successfully connected to PostgreSQL database {self.database} on {self.host}:{self.port}")
 
     @staticmethod
     def get_trades_table_name(connector_name: str, trading_pair: str) -> str:
