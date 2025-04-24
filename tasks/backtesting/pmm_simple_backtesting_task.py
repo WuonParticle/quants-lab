@@ -48,16 +48,16 @@ class PMMSimpleConfigGenerator(BaseStrategyConfigGenerator):
         # Buy spreads in bips to help with step size
         # 1 hr trial with percents resulted with volume 2150.8293086164326 Params = [buy_0: 0.0056099999999999995, buy_1_step: 0.00506, sell_0: 0.0012100000000000001, sell_1_step: 0.00016, take_profit: 0.01, stop_loss: 0.04, time_limit: 120, executor_refresh_time: 60, cooldown_time: 300]
         
-        buy_0 = trial.suggest_float("buy_0", 1, 200, step=1)
+        buy_0_bips = trial.suggest_float("buy_0_bips", 1, 200, step=1)
         buy_1_step = trial.suggest_float("buy_1_step", 0, 200, step=5)
-        sell_0 = trial.suggest_float("sell_0", 1, 200, step=1)
+        sell_0_bips = trial.suggest_float("sell_0_bips", 1, 200, step=1)
         sell_1_step = trial.suggest_float("sell_1_step", 0, 200, step=5)
-        buy_spreads = [buy_0 / 10000, (buy_0 + buy_1_step) / 10000]
-        sell_spreads = [sell_0 / 10000, (sell_0 + sell_1_step) / 10000]
+        buy_spreads = [buy_0_bips / 10000, (buy_0_bips + buy_1_step) / 10000]
+        sell_spreads = [sell_0_bips / 10000, (sell_0_bips + sell_1_step) / 10000]
         
         # Risk management parameters (in %)
-        take_profit = trial.suggest_float("take_profit", 0.1, 10, step=0.1)
-        stop_loss = trial.suggest_float("stop_loss", 1, 20, step=0.1)
+        take_profit = trial.suggest_float("take_profit_pct", 0.125, 10, step=0.125) / 100
+        stop_loss = trial.suggest_float("stop_loss_pct", 0.5, 20, step=0.125) / 100
         # trailing_stop_activation_price = trial.suggest_float("trailing_stop_activation_price", 0.005, 0.02, step=0.005)
         # trailing_delta_ratio = trial.suggest_float("trailing_delta_ratio", 0.1, 0.5, step=0.1)
         # trailing_stop_trailing_delta = trailing_stop_activation_price * trailing_delta_ratio
@@ -83,7 +83,6 @@ class PMMSimpleConfigGenerator(BaseStrategyConfigGenerator):
             buy_amounts_pct=None,
             sell_amounts_pct=None,
             take_profit=Decimal(take_profit),
-            
             stop_loss=Decimal(stop_loss),
             # trailing_stop=TrailingStop(
             #     activation_price=Decimal(trailing_stop_activation_price), 
@@ -101,7 +100,7 @@ class PMMSimpleConfigGenerator(BaseStrategyConfigGenerator):
 
 class PMMSimpleBacktestingTask(BaseTask):
     async def execute(self):
-        start_time = time.time()
+        task_start_time = time.time()
         self.config_helper = TaskConfigHelper(self.config)
         random.seed(42)
         filtered_config = {k: v for k, v in self.config.items() if k not in ['timescale_config', 'postgres_config', 'mongo_config']}
@@ -130,13 +129,13 @@ class PMMSimpleBacktestingTask(BaseTask):
             pair_start_time = time.perf_counter()
             logger.info(f"[{i+1}/{len(selected_pairs)}] Processing {trading_pair}")
             
-            start_date, end_date, human_start, human_end = self.config_helper.get_backtesting_time_range()
+            start_time, end_time, human_start, human_end = self.config_helper.get_backtesting_time_range()
             
             logger.info(f"Optimizing strategy for {connector_name} {trading_pair} {human_start} {human_end}")
 
             config_generator = PMMSimpleConfigGenerator(
-                start_date=pd.to_datetime(start_date, unit="s"),
-                end_date=pd.to_datetime(end_date, unit="s"),
+                start_date=pd.to_datetime(start_time, unit="s"),
+                end_date=pd.to_datetime(end_time, unit="s"),
                 config={**self.config, "trading_pair": trading_pair}
             )
             
@@ -147,8 +146,8 @@ class PMMSimpleBacktestingTask(BaseTask):
                     connector_name=connector_name, 
                     trading_pair=trading_pair,
                     intervals=[backtesting_interval, candle_interval],
-                    start_time = start_date - 60 * 60, # add 1 hour buffer for TA calculations
-                    end_time = end_date + 60 * 60,
+                    start_time = start_time - 60 * 60, # add 1 hour buffer for TA calculations
+                    end_time = end_time + 60 * 60,
                     timescale_client=self.config_helper.create_timescale_client()
                 )
                 
@@ -156,24 +155,23 @@ class PMMSimpleBacktestingTask(BaseTask):
                 study_name_suffix = self.config.get("study_name_suffix", "")
                 force_new_study = self.config.get("force_new_study", "")
                 logger.info(f"Starting optimization with {self.config['n_trials']} trials for {trading_pair}")
-                study_name = f"pmm_simple_{trading_pair}_{backtesting_interval}_{self.config['n_trials']}_{study_name_suffix}"
+                study_name = f"{self.name.replace(' ', '_').lower()}_{trading_pair}_{backtesting_interval}_{self.config['n_trials']}_{study_name_suffix}"
                 if force_new_study:
-                    study_name = f"{study_name}_{optimize_start_time:.0f}"
+                    study_name = f"{study_name}_{task_start_time:.0f}"
                 
                 debug_trial = self.config.get("debug_trial", False)
                 if debug_trial:
-                    best_trial = await optimizer.repeat_trial(
+                    study = await optimizer.repeat_trial(
                         study_name=study_name,
                         trial_number=debug_trial,
                         config_generator=config_generator
                     )
                 else:
-                    best_trial = await optimizer.optimize(
+                    study = await optimizer.optimize(
                         study_name=study_name,
                         config_generator=config_generator, 
                         n_trials=self.config["n_trials"]
                     )
-                
                 optimize_duration = time.perf_counter() - optimize_start_time
                 logger.info(f"Optimization completed in {optimize_duration:.2f} seconds for {trading_pair}")
                 
@@ -192,9 +190,9 @@ class PMMSimpleBacktestingTask(BaseTask):
                 logger.error(traceback.format_exc())
             
             pair_duration = time.perf_counter() - pair_start_time
-            logger.info(f"Completed {trading_pair} in {pair_duration:.2f} seconds with best_trial value {best_trial.value}")
+            logger.info(f"Completed {trading_pair} in {pair_duration:.2f} seconds with best_trial value {study.best_trial.value}")
         
-        total_duration = time.time() - start_time
+        total_duration = time.time() - task_start_time
         # logger.info(f"PMM Simple backtesting task completed in {total_duration:.2f} seconds")
 
 
@@ -207,7 +205,7 @@ async def main():
     )
     # Run from command line with: python -m tasks.backtesting.pmm_simple_backtesting_task --config config/pmm_simple_backtesting_task.yml
     config = BaseTask.load_single_task_config()
-    task = PMMSimpleBacktestingTask("PMM Simple Backtesting", None, config)
+    task = PMMSimpleBacktestingTask("PMM Simple", None, config)
     await task.run_once()
 
 if __name__ == "__main__":
