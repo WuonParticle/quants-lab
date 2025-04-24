@@ -4,20 +4,15 @@ import logging
 import os
 import random
 import time
-from datetime import timedelta
-from typing import Any, Dict
 from decimal import Decimal
 import traceback
 import optuna
-from pathlib import Path
 import pandas as pd
 from dotenv import load_dotenv
-from hummingbot.strategy_v2.executors.position_executor.data_types import TrailingStop
-import fcntl
 
-from controllers.market_making.pmm_simple import PMMSimpleController, PMMSimpleConfig
+from controllers.market_making.pmm_simple import PMMSimpleConfig
 from core.backtesting.optimizer import StrategyOptimizer, BacktestingConfig, BaseStrategyConfigGenerator
-from core.task_base import BaseTask, LeaderElectedTask
+from core.task_base import BaseTask, ParallelWorkerTask
 from core.task_config_helpers import TaskConfigHelper
 
 load_dotenv()
@@ -89,7 +84,7 @@ class PMMSimpleConfigGenerator(BaseStrategyConfigGenerator):
         return BacktestingConfig(config=config, start=self.start, end=self.end)
 
 
-class PMMLabelGenerationTask(LeaderElectedTask):
+class PMMLabelGenerationTask(ParallelWorkerTask):
     async def task_execute(self):
         task_start_time = time.perf_counter()
         self.config_helper = TaskConfigHelper(self.config)
@@ -106,7 +101,7 @@ class PMMLabelGenerationTask(LeaderElectedTask):
         optimizer = StrategyOptimizer(root_path=self.root_path.absolute(),
                                     resolution=backtesting_interval,
                                     db_client=self.config_helper.create_timescale_client(),
-                                     storage_name=StrategyOptimizer.get_storage_name("postgres", **self.config),
+                                    storage_name=StrategyOptimizer.get_storage_name("postgres", **self.config),
                                     custom_objective= lambda _, x: x["total_volume"] if x["net_pnl_quote"] > 0 else 0.0,
                                     backtest_offset=self.config.get("backtest_offset", 0)
                                     )
@@ -144,8 +139,18 @@ class PMMLabelGenerationTask(LeaderElectedTask):
                 logger.info(f"Creating {num_windows} studies for {trading_pair} with step {backtest_window_step}s")
                 if debug_study_name is not None:
                     num_windows = 1
+                
+                
+                # Distribute windows among workers using the should_process_item method
+                worker_windows = [idx for idx in range(num_windows) if self.should_process_item(idx)]
+                logger.info(f"Worker {self.worker_id+1}/{self.total_workers} will process {len(worker_windows)} windows")
+                
+                # The leader needs to collect all studies for persisting the results
+                if self.is_leader:
+                    worker_windows.extend([idx for idx in range(num_windows) if not self.should_process_item(idx)])
+                should_clear_study_cache = self.is_leader
                 studies = []
-                for window_idx in range(num_windows):
+                for window_idx in worker_windows:
                     window_start = start_time + (window_idx * backtest_window_step)
                     window_end = window_start + backtest_window_size
                     window_human_start = datetime.datetime.fromtimestamp(window_start).strftime('%Y-%m-%d %H:%M:%S')
@@ -193,6 +198,10 @@ class PMMLabelGenerationTask(LeaderElectedTask):
                     optimize_duration = time.perf_counter() - optimize_start_time
                     logger.debug(f"Optimization completed in {optimize_duration:.1f} seconds for {trading_pair} window {window_idx + 1}")
                     
+                    if should_clear_study_cache and not self.should_process_item(window_idx):
+                        # reset the study cache so that the leader doesn't attempt to create a study for every study it's collecting 
+                        optimizer.reset_study_cache()
+                        should_clear_study_cache = False
 
                 # Save all optimal configurations for this trading pair to CSV - only if we're the leader
                 if self.is_leader:
@@ -218,9 +227,11 @@ class PMMLabelGenerationTask(LeaderElectedTask):
             except Exception as e:
                 logger.error(f"Error processing {trading_pair}: {str(e)}")
                 logger.error(traceback.format_exc())
+            finally:
+                await optimizer._db_client.close()
             
             pair_duration = time.perf_counter() - pair_start_time
-            logger.info(f"Completed {trading_pair} in {pair_duration:.2f} seconds with best_trial value {study.best_trial.value}")
+            logger.info(f"Completed {trading_pair} in {pair_duration:.2f} seconds with best_trial value {study.best_trial.value if len(studies) > 0 else 'N/A'}")
 
 
 async def main():
