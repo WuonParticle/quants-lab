@@ -22,6 +22,7 @@ from core.backtesting import BacktestingEngine
 from core.data_structures.backtesting_result import BacktestingResult
 from core.services.timescale_client import TimescaleClient
 from core.services.postgres_client import PostgresClient
+from core.services.optuna_cached_storage_wrapper import OptunaCachedStorageWrapper
 
 load_dotenv()
 
@@ -94,8 +95,11 @@ class StrategyOptimizer:
     Class for optimizing trading strategies using Optuna and a backtesting engine.
     """
 
-    def __init__(self, storage_name: Optional[str] = None, root_path: str = "",
-                 load_cached_data: bool = False, resolution: str = "1m", db_client: Optional[TimescaleClient] = None,
+    def __init__(self, storage_name: Optional[str] = None,
+                 root_path: str = "",
+                 load_cached_data: bool = False,
+                 resolution: str = "1m",
+                 db_client: Optional[TimescaleClient] = None,
                  custom_backtester: Optional[BacktestingEngineBase] = None,
                  custom_objective: Optional[Callable[[optuna.Trial, dict[str, float]], Union[float, Sequence[float]]]] = None,
                  seed: Optional[int] = 42,
@@ -105,15 +109,16 @@ class StrategyOptimizer:
         Initialize the optimizer with a backtesting engine and database configuration.
 
         Args:
-            engine (str): "sqlite" or "postgres".
+            storage_name (str): Optuna storage connection string
             root_path (str): Root path for storing database files.
-            database_name (str): Name of the SQLite database for storing optimization results.
             load_cached_data (bool): Whether to load cached backtesting data.
             resolution (str): The resolution or time frame of the data (e.g., '1h', '1d').
-            db_host (str): Database Host
-            db_port (int): Database Port
-            db_user (str): Database User
-            db_pass (str): Database Password
+            db_client (TimescaleClient): Database client for timescale operations
+            custom_backtester (BacktestingEngineBase): Optional custom backtester implementation
+            custom_objective (Callable): Optional custom objective function for optimization
+            seed (int): Random seed for reproducibility
+            backtest_offset (int): Offset for backtesting operations
+            directions (List[str]): Optimization directions ("maximize" or "minimize")
         """
         self._backtesting_engine = BacktestingEngine(load_cached_data=load_cached_data, root_path=root_path,
                                                      custom_backtester=custom_backtester)
@@ -127,8 +132,12 @@ class StrategyOptimizer:
         self.backtest_offset = backtest_offset
         self.directions = directions
         
+        # Create storage wrapper for efficient querying
+        self.storage_wrapper = OptunaCachedStorageWrapper(self._storage)
+        self.study_name_prefix = ''
+        
     @classmethod
-    def get_storage_name(cls, engine, create_db_if_not_exists: bool = True, **kwargs):
+    def get_storage_name(cls, engine, create_db_if_not_exists: bool = False, **kwargs):
         """
         Get the storage name for the optimization database.
         
@@ -137,7 +146,7 @@ class StrategyOptimizer:
             create_db_if_not_exists (bool): Whether to create the database if it doesn't exist.
             **kwargs: Additional arguments for database configuration.
                       For sqlite: root_path, database_name
-                      For postgres: either postgres_config dict
+                      For postgres: connection parameters (host, port, user, password, database)
         
         Returns:
             str: The storage name (connection string) for the database.
@@ -155,6 +164,17 @@ class StrategyOptimizer:
             )
             return connection_string
 
+    async def set_study_name_prefix(self, study_name_prefix: str):
+        """
+        Set the study name prefix and load all trial data for studies matching this prefix.
+        This improves performance by preloading and caching all relevant data.
+        
+        Args:
+            study_name_prefix (str): The prefix to filter study names by
+        """
+        self.study_name_prefix = study_name_prefix
+        self.storage_wrapper.get_or_create_prefix_cache(study_name_prefix)
+    
     def load_candles_cache_by_connector_pair(self, connector_name: str, trading_pair: str):
         """
         Load the cached candles data for a given connector and trading pair.
@@ -165,39 +185,14 @@ class StrategyOptimizer:
         """
         self._backtesting_engine.load_candles_cache_by_connector_pair(connector_name, trading_pair, root_path=self.root_path)
 
-    @functools.cached_property
-    def all_study_names(self) -> set[str]:
-        """
-        Get all the study names available in the database, using Python's built-in caching.
-
-        Returns:
-            Set[str]: A set of study names.
-        """
-        return set(optuna.get_all_study_names(self._storage))
-        
-    def get_all_study_names(self) -> List[str]:
-        """
-        Get all the study names available in the database.
-
-        Returns:
-            List[str]: A list of study names.
-        """
-        return optuna.get_all_study_names(self._storage)
-        
     def reset_study_cache(self) -> None:
-        """
-        Reset the cached study names, forcing the next access to reload from database.
-        
-        Use this when you know the study list has changed outside of this instance's operations.
-        """
-        try:
-            del self.__dict__['all_study_names']
-        except KeyError:
-            pass
-
+        """Reset the cache for the current study name prefix."""
+        if self.study_name_prefix in self.storage_wrapper.prefix_caches:
+            del self.storage_wrapper.prefix_caches[self.study_name_prefix]
+            
     def get_study(self, study_name: str) -> optuna.Study:
         """
-        Get an existing study or create a new one.
+        Get an existing study.
 
         Args:
             study_name (str): The name of the study.
@@ -245,26 +240,23 @@ class StrategyOptimizer:
 
         Args:
             study_name (str): The name of the study.
-            direction (str): Direction of optimization ("maximize" or "minimize").
             load_if_exists (bool): Whether to load an existing study if available.
 
         Returns:
             optuna.Study: The created or loaded study.
         """
-        # NOTE: a reloaded sampler may not be reproducible
         sampler = optuna.samplers.TPESampler(seed=self.seed)
-        if load_if_exists and study_name in self.all_study_names:
-            # Study exists and we want to load it, so load directly instead of trying to create
+        
+        # Use our cached storage wrapper to check if study exists
+        if load_if_exists and self.storage_wrapper.study_exists(study_name, self.study_name_prefix):
             return optuna.load_study(study_name=study_name, storage=self._storage, sampler=sampler)
-            
-        study = optuna.create_study(
+        return optuna.create_study(
             study_name=study_name,
             storage=self._storage,
             sampler=sampler,
             directions=self.directions,
             load_if_exists=load_if_exists,
         )
-        return study
 
     async def optimize(self, study_name: str, config_generator: Type[BaseStrategyConfigGenerator], n_trials: int = 100,
                        load_if_exists: bool = True):
@@ -276,7 +268,6 @@ class StrategyOptimizer:
             config_generator (Type[BaseStrategyConfigGenerator]): A configuration generator class instance.
             n_trials (int): Number of trials to run for optimization.
             load_if_exists (bool): Whether to load an existing study if available.
-            num_parallel_trials (int): Number of trials being run in parallel. Just helps with preventing running all trials if some are failing.
         """
         global logger
         study = self._create_study(study_name, load_if_exists=load_if_exists)
@@ -303,7 +294,8 @@ class StrategyOptimizer:
                               n_trials: int):
 
         trial_attempts = 0
-        num_completed_trials = len(study._get_trials(deepcopy=False, states=[optuna.trial.TrialState.COMPLETE], use_cache=True))
+        # Get the count of completed trials
+        num_completed_trials = self.storage_wrapper.count_trial_state(study.study_name, optuna.trial.TrialState.COMPLETE, self.study_name_prefix)
         if num_completed_trials >= n_trials:
             logger.debug(f"study already completed with {num_completed_trials} trials")
             return study
@@ -325,7 +317,8 @@ class StrategyOptimizer:
                 traceback.print_exc()
                 study.tell(trial, state=optuna.trial.TrialState.FAIL)
             finally:
-                num_completed_trials = len(study.get_trials(deepcopy=False, states=[optuna.trial.TrialState.COMPLETE]))
+                # Get current count of completed trials
+                num_completed_trials = self.storage_wrapper.count_trial_state(study.study_name, optuna.trial.TrialState.COMPLETE, allow_cache=False)
         
         logger.info(f"study completed after {trial_attempts} trials")
         return study
@@ -510,10 +503,10 @@ class StrategyOptimizer:
     
     def _format_values(self, val):
         if isinstance(val, float):
-            return f"{val:.2e}"
+            return f"{val:.3g}"
         else:
             # Handle sequence of values (multi-objective case)
-            return f"[{', '.join(f'{v:.2e}' for v in val)}]"
+            return f"[{', '.join(f'{v:.3g}' for v in val)}]"
     
     async def save_best_config_to_yaml(self, study_name: str, output_path: str, config_generator: Type[BaseStrategyConfigGenerator]):
         """
