@@ -110,7 +110,9 @@ class ParallelWorkerTask(BaseTask):
     
     This class combines the functionality of parallel worker distribution and leadership.
     """
-    def __init__(self, name: str, frequency: Optional[timedelta], config: Dict[str, Any],
+    def __init__(self, name: str,
+                 config: Dict[str, Any],
+                 frequency: Optional[timedelta] = None,
                  leader_head_start: Optional[float] = 0.5,
                  worker_start_stagger: Optional[float] = 0.05):
         super().__init__(name, frequency, config)
