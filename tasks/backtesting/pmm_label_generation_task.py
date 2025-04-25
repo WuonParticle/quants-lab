@@ -102,7 +102,9 @@ class PMMLabelGenerationTask(ParallelWorkerTask):
                                     resolution=backtesting_interval,
                                     db_client=self.config_helper.create_timescale_client(),
                                     storage_name=StrategyOptimizer.get_storage_name("postgres", **self.config),
-                                    custom_objective= lambda _, x: x["total_volume"] if x["net_pnl_quote"] > 0 else 0.0,
+                                    # custom_objective= lambda _, x: x["total_volume"] if x["net_pnl_quote"] > 0 else 0.0,
+                                    custom_objective= lambda _, x: [x["net_pnl_quote"], x["total_volume"]],
+                                    directions=["maximize", "maximize"],
                                     backtest_offset=self.config.get("backtest_offset", 0)
                                     )
         
@@ -213,8 +215,9 @@ class PMMLabelGenerationTask(ParallelWorkerTask):
                     try:
                         data = []
                         for study, window_start, window_idx in studies:
-                            row = study.best_trial.params.copy()
-                            row['value'] = study.best_trial.value
+                            best_trial = max(study.best_trials, key=lambda t: t.values[0])
+                            row = best_trial.params.copy()
+                            row['value'] = best_trial.values
                             row['window_start'] = pd.to_datetime(window_start, unit='s')
                             data.append(row)
                         df = pd.DataFrame(data)
@@ -231,7 +234,7 @@ class PMMLabelGenerationTask(ParallelWorkerTask):
                 await optimizer.dispose()
             
             pair_duration = time.perf_counter() - pair_start_time
-            logger.info(f"Completed {trading_pair} in {pair_duration:.2f} seconds with best_trial value {study.best_trial.value if len(studies) > 0 else 'N/A'}")
+            logger.info(f"Completed {trading_pair} in {pair_duration:.2f}")
 
 
 async def main():
