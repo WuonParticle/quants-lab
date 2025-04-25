@@ -10,7 +10,7 @@ import time
 import traceback
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Callable, List, Optional, Type, Dict, Set
+from typing import Callable, List, Optional, Sequence, Type, Dict, Set, Union
 
 import optuna
 from dotenv import load_dotenv
@@ -97,9 +97,10 @@ class StrategyOptimizer:
     def __init__(self, storage_name: Optional[str] = None, root_path: str = "",
                  load_cached_data: bool = False, resolution: str = "1m", db_client: Optional[TimescaleClient] = None,
                  custom_backtester: Optional[BacktestingEngineBase] = None,
-                 custom_objective: Optional[Callable[[optuna.Trial, dict[str, float]], float]] = None,
+                 custom_objective: Optional[Callable[[optuna.Trial, dict[str, float]], Union[float, Sequence[float]]]] = None,
                  seed: Optional[int] = 42,
-                 backtest_offset: int = 0):
+                 backtest_offset: int = 0, 
+                 directions: Optional[List[str]] = ["maximize"]):
         """
         Initialize the optimizer with a backtesting engine and database configuration.
 
@@ -124,7 +125,8 @@ class StrategyOptimizer:
         self._custom_objective = custom_objective
         self.seed = seed 
         self.backtest_offset = backtest_offset
-
+        self.directions = directions
+        
     @classmethod
     def get_storage_name(cls, engine, create_db_if_not_exists: bool = True, **kwargs):
         """
@@ -237,7 +239,7 @@ class StrategyOptimizer:
         study = self.get_study(study_name)
         return study.best_params
 
-    def _create_study(self, study_name: str, direction: str = "maximize", load_if_exists: bool = True) -> optuna.Study:
+    def _create_study(self, study_name: str, load_if_exists: bool = True) -> optuna.Study:
         """
         Create or load an Optuna study for optimization.
 
@@ -256,10 +258,10 @@ class StrategyOptimizer:
             return optuna.load_study(study_name=study_name, storage=self._storage, sampler=sampler)
             
         study = optuna.create_study(
-            direction=direction,
             study_name=study_name,
             storage=self._storage,
             sampler=sampler,
+            directions=self.directions,
             load_if_exists=load_if_exists,
         )
         return study
@@ -301,7 +303,7 @@ class StrategyOptimizer:
                               n_trials: int):
 
         trial_attempts = 0
-        num_completed_trials = len(study.get_trials(deepcopy=False, states=[optuna.trial.TrialState.COMPLETE]))
+        num_completed_trials = len(study._get_trials(deepcopy=False, states=[optuna.trial.TrialState.COMPLETE], use_cache=True))
         if num_completed_trials >= n_trials:
             logger.debug(f"study already completed with {num_completed_trials} trials")
             return study
@@ -314,11 +316,10 @@ class StrategyOptimizer:
             try:
                 value = await self._async_objective(trial, config_generator)
                 duration = time.perf_counter() - start_time
-                logger.info(f"Trial {trial.number} completed with value: {value:.2f} in {duration:.1f} seconds")
-
                 # Report the result back to the study
                 study.tell(trial, value)
-
+                is_multi_objective = not isinstance(value, float)
+                logger.info(f"Trial {trial.number} completed with value{'s' if is_multi_objective else ''}: {self._format_values(value)} in {duration:.2f} seconds")
             except Exception as e:
                 logger.error(f"Error in trial {trial.number}: {str(e)}")
                 traceback.print_exc()
@@ -390,31 +391,6 @@ class StrategyOptimizer:
             # Report the result back to the study
             study.tell(trial, value)
         return study
-
-    def set_custom_objective(self, objective_function):
-        """
-        Set a custom objective function for optimization.
-        
-        Args:
-            objective_function: A callable that takes (trial, results) and returns a float 
-                              representing the objective value to optimize.
-        """
-        self._custom_objective = objective_function
-
-    def get_study_best_trial(self, study_name: str):
-        """
-        Get the best trial for a given study name.
-        
-        Args:
-            study_name (str): The name of the study.
-            
-        Returns:
-            optuna.Trial: The best trial from the study.
-        """
-        study = self.get_study(study_name)
-        if study and len(study.trials) > 0:
-            return study.best_trial
-        return None
 
     async def _async_objective(self, trial: optuna.Trial, config_generator: Type[BaseStrategyConfigGenerator]) -> float:
         """
@@ -532,6 +508,13 @@ class StrategyOptimizer:
         await self._db_client.close()
         self._storage._backend.engine.dispose()
     
+    def _format_values(self, val):
+        if isinstance(val, float):
+            return f"{val:.2e}"
+        else:
+            # Handle sequence of values (multi-objective case)
+            return f"[{', '.join(f'{v:.2e}' for v in val)}]"
+    
     async def save_best_config_to_yaml(self, study_name: str, output_path: str, config_generator: Type[BaseStrategyConfigGenerator]):
         """
         Save the best configuration from a study to a YAML file.
@@ -549,7 +532,7 @@ class StrategyOptimizer:
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
             
             # Get the best trial from the study
-            best_trial = self.get_study_best_trial(study_name)
+            best_trial = self.get_study(study_name).best_trial
             backtesting_config = await config_generator.generate_config(best_trial)
             config = backtesting_config.config.dict()
             
