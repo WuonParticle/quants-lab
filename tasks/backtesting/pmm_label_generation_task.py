@@ -55,7 +55,7 @@ class PMMSimpleConfigGenerator(BaseStrategyConfigGenerator):
         # fixing per pmm_simple_ADA-USDT_1s_2000_round2fixed   
         time_limit = 90 
         executor_refresh_time = 60
-        cooldown_time = 80 
+        cooldown_time = 10
 
         # Create the strategy configuration
         total_amount_quote = self.config.get("total_amount_quote", 100)
@@ -101,7 +101,7 @@ class PMMLabelGenerationTask(ParallelWorkerTask):
         optimizer = StrategyOptimizer(root_path=self.root_path.absolute(),
                                     resolution=backtesting_interval,
                                     db_client=self.config_helper.create_timescale_client(),
-                                    storage_name=StrategyOptimizer.get_storage_name("postgres", **self.config),
+                                    storage_name=StrategyOptimizer.get_storage_name("postgres", create_db_if_not_exists=False, **self.config),
                                     # custom_objective= lambda _, x: x["total_volume"] if x["net_pnl_quote"] > 0 else 0.0,
                                     custom_objective= lambda _, x: [x["net_pnl_quote"], x["total_volume"]],
                                     directions=["maximize", "maximize"],
@@ -125,6 +125,7 @@ class PMMLabelGenerationTask(ParallelWorkerTask):
             logger.info(f"Optimizing strategy for {connector_name} {trading_pair} {human_start} {human_end}")
             
             # Load all candles for the entire period first
+            # TODO: only cache 1 day of candles at a time as it takes 1 call to timescale per 2 days
             await optimizer._backtesting_engine.load_candles_cache_for_connector_pair_from_timescale(
                     connector_name=connector_name, 
                     trading_pair=trading_pair,
@@ -136,20 +137,24 @@ class PMMLabelGenerationTask(ParallelWorkerTask):
 
             try:
                 # Calculate number of windows based on total duration and step size
+                study_name_prefix = f"{self.name.replace(' ', '_').lower()}_{trading_pair}_{backtesting_interval}_{n_trials}_{study_name_suffix}"
+                await optimizer.set_study_name_prefix(study_name_prefix)
                 total_duration = end_time - start_time
                 num_windows = int(total_duration / backtest_window_step)
                 logger.info(f"Creating {num_windows} studies for {trading_pair} with step {backtest_window_step}s")
+                
                 if debug_study_name is not None:
                     num_windows = 1
                 
-                # Distribute windows among workers using the should_process_item method
+                # Distribute windows among workers
                 worker_windows = [idx for idx in range(num_windows) if self.should_process_item(idx)]
                 logger.info(f"Worker {self.worker_id+1}/{self.total_workers} will process {len(worker_windows)} windows")
+                # TODO: skip all windows that have already been completed
                 
-                # The leader needs to collect all studies for persisting the results
-                # TODO: having each worker collect all trials is pretty slow. Optuna is not designed for this use case.
+                # Leader needs all windows to collect results
                 if self.is_leader:
                     worker_windows.extend([idx for idx in range(num_windows) if not self.should_process_item(idx)])
+                    # study_names = optimizer.storage_wrapper.get_study_names_by_prefix(study_name_prefix)
                 should_clear_study_cache = self.is_leader
                 studies = []
                 for window_idx in worker_windows:
@@ -160,7 +165,7 @@ class PMMLabelGenerationTask(ParallelWorkerTask):
                     
                     logger.info(f"Processing window {window_idx + 1}/{num_windows}: {window_human_start} to {window_human_end}")
                     if debug_study_name is None:
-                        study_name = f"{self.name.replace(' ', '_').lower()}_{trading_pair}_{backtesting_interval}_{n_trials}_{study_name_suffix}_{window_start:.0f}"
+                        study_name = f"{study_name_prefix}_{window_start:.0f}"
                         if force_new_study:
                             study_name = f"{study_name}_{task_start_time:.0f}"
                     else:
@@ -214,6 +219,7 @@ class PMMLabelGenerationTask(ParallelWorkerTask):
                     
                     try:
                         data = []
+                        studies.sort(key=lambda x: x[1])
                         for study, window_start, window_idx in studies:
                             best_trial = max(study.best_trials, key=lambda t: t.values[0])
                             row = best_trial.params.copy()
