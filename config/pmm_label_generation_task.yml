@@ -22,16 +22,16 @@ tasks:
       
       # Trading pairs to backtest
       selected_pairs:
-        - "ADA-USDT"
-        - "CRV-USDT"
-        - "BTC-USDT"
-        - "AVAX-USDT"
-        - "AAVE-USDT"
-        - "APT-USDT"
-        - "EIGEN-USDT"
-        - "HBAR-USDT"
-        - "ETH-USDT"
-        - "KAITO-USDT"
-        - "XRP-USDT"
+        - ADA-USDT
+        - CRV-USDT
+        - BTC-USDT
+        - AVAX-USDT
+        - AAVE-USDT
+        - APT-USDT
+        - EIGEN-USDT
+        - HBAR-USDT
+        - ETH-USDT
+        - KAITO-USDT
+        - XRP-USDT
         
         
