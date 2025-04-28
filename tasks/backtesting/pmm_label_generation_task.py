@@ -56,13 +56,14 @@ class PMMSimpleConfigGenerator(BaseStrategyConfigGenerator):
         
         # Order parameters
         # Generate buy and sell spreads
-        # Buy spreads in bips to help with step size
-        buy_0_bips = trial.suggest_float("buy_0_bips", 1, 200, step=1)
+        # Buy spreads in bps to help with step size
+        #TODO: rename to bps instead of bps
+        buy_0_bps = trial.suggest_float("buy_0_bps", 1, 200, step=1)
         buy_1_step = trial.suggest_float("buy_1_step", 0, 200, step=5)
-        sell_0_bips = trial.suggest_float("sell_0_bips", 1, 200, step=1)
+        sell_0_bps = trial.suggest_float("sell_0_bps", 1, 200, step=1)
         sell_1_step = trial.suggest_float("sell_1_step", 0, 200, step=5)
-        buy_spreads = [buy_0_bips / 10000, (buy_0_bips + buy_1_step) / 10000]
-        sell_spreads = [sell_0_bips / 10000, (sell_0_bips + sell_1_step) / 10000]
+        buy_spreads = [buy_0_bps / 10000, (buy_0_bps + buy_1_step) / 10000]
+        sell_spreads = [sell_0_bps / 10000, (sell_0_bps + sell_1_step) / 10000]
         
         # Risk management parameters (in %)
         take_profit = trial.suggest_float("take_profit_pct", 0.125, 10, step=0.125) / 100
