@@ -10,6 +10,8 @@ import traceback
 import optuna
 import pandas as pd
 from dotenv import load_dotenv
+from sqlalchemy import Tuple
+from core.utils.time_utils import perf_log_text
 
 from controllers.market_making.pmm_simple import PMMSimpleConfig
 from core.backtesting.optimizer import StrategyOptimizer, BacktestingConfig, BaseStrategyConfigGenerator
@@ -171,35 +173,32 @@ class PMMLabelGenerationTask(ParallelWorkerTask):
         # Replace local variables with class attributes
         for i, trading_pair in enumerate(self.selected_pairs):
             pair_start_time = time.perf_counter()
-            logger.info(f"[{i+1}/{len(self.selected_pairs)}] Processing {trading_pair}")
-            
-            logger.info(f"Optimizing strategy for {self.connector_name} {trading_pair} {self.human_start} to {self.human_end}")
+            logger.info(f"[{i+1}/{len(self.selected_pairs)}] Processing {self.connector_name} {trading_pair} from {self.human_start} to {self.human_end}")
             
             try:
                 self.study_name_prefix = f"{self.name.replace(' ', '_').lower()}_{trading_pair}_{self.backtesting_interval}_{self.n_trials}_{self.study_name_suffix}"
                 await optimizer.set_study_name_prefix(self.study_name_prefix)
                 total_duration = self.end_time - self.start_time
                 num_windows = int(total_duration / self.backtest_window_step)
-                logger.info(f"Will create {num_windows} studies for {trading_pair} with step {self.backtest_window_step}s")
                 
                 if self.debug_study_name is not None:
                     num_windows = 1
                 
                 # Distribute windows among workers
                 worker_windows = [self.create_worker_window(idx, self.study_name_prefix) for idx in range(num_windows) if self.should_process_item(idx)]
-                logger.info(f"Worker {self.worker_id+1}/{self.total_workers} will process {len(worker_windows)} windows")
-                # Leader will follow up to be sure all windows are completed
                 if self.is_leader:
-                    # TODO: allow leader to skip windows by loading all skipped studies 
+                    # Leader will follow up to be sure all windows are completed
                     leader_windows = [self.create_worker_window(idx, self.study_name_prefix) for idx in range(num_windows) if not self.should_process_item(idx)]
                     worker_windows.extend(leader_windows)
-                else:
-                    windows_to_skip = set(window for window in worker_windows if optimizer.storage_wrapper.count_trial_state(window.study_name, optuna.trial.TrialState.COMPLETE, self.study_name_prefix) >= self.n_trials)
+                # TODO: make a study_has_completed wrapper function for this
+                windows_to_skip = [window for window in worker_windows if optimizer.storage_wrapper.count_trial_state(window.study_name, optuna.trial.TrialState.COMPLETE, self.study_name_prefix) >= self.n_trials]
+                if not self.debug_trial and len(windows_to_skip) > 0:
+                    logger.info(f"Skipping {len(windows_to_skip)} already completed windows for {trading_pair}")
                     worker_windows = [window for window in worker_windows if window not in windows_to_skip]
-                    logger.info(f"Skipping {len(windows_to_skip)} already completed windows")
                 
-                # TODO: only cache 1 day of candles at a time as it takes 1 call to timescale per 2 days
+                # TODO: only cache 2 days of candles at a time as it takes 1 call to timescale per 2 days
                 if len(worker_windows) > 0:
+                    logger.info(f"Worker {self.worker_id+1}/{self.total_workers} will process {len(worker_windows)}/{num_windows} windows")
                     await optimizer._backtesting_engine.load_candles_cache_for_connector_pair_from_timescale(
                         connector_name=self.connector_name, 
                         trading_pair=trading_pair,
@@ -211,7 +210,7 @@ class PMMLabelGenerationTask(ParallelWorkerTask):
                     )
                 
                 should_clear_study_cache = self.is_leader
-                studies = []
+                studies: list[Tuple[optuna.Study, WorkerWindow]] = []
                 for window in worker_windows:
                     logger.info(f"Processing window {window.idx + 1}/{num_windows}: {window.human_start} to {window.human_end}")
                     
@@ -236,8 +235,7 @@ class PMMLabelGenerationTask(ParallelWorkerTask):
                             n_trials=self.n_trials
                         )
                     studies.append((study, window))
-                    optimize_duration = time.perf_counter() - optimize_start_time
-                    logger.debug(f"Optimization completed in {optimize_duration:.1f} seconds for {trading_pair} window {window.idx + 1}")
+                    logger.debug(f"Optimization completed in {perf_log_text(optimize_start_time)} for {trading_pair} window {window.idx + 1}")
                     
                     if should_clear_study_cache and not self.should_process_item(window.idx):
                         # reset the study cache so that the leader doesn't attempt to create a study for every study it's collecting 
@@ -249,23 +247,34 @@ class PMMLabelGenerationTask(ParallelWorkerTask):
                     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
                     labels_file_name = f"{trading_pair.replace('-', '_')}_optimal_configs_{timestamp}.csv"
                     labels_file = self.root_path / "data" / "labels" / labels_file_name
-                    logger.info(f"Leader is saving optimal configurations to {labels_file}")
                     
                     try:
                         data = []
+                        label_save_start_time = time.perf_counter()
+                        # TODO: load the skipped studies in the same query as the trials or at least all studies at once
+                        skipped_studies = [(optimizer.get_study(window.study_name), window) for window in windows_to_skip]
+                        logger.info(f"Leader is retrieving {len(skipped_studies)} skipped studies after {perf_log_text(label_save_start_time)} getting studies")
+                        studies.extend(skipped_studies)
                         studies.sort(key=lambda x: x[1].start)
+                        # NOTE: Got this down to 2 minutes per 1500 100 trial studies 
+                        # TODO?: create SQL queries to summarize the data directly 
+                        optimizer.storage_wrapper.populate_study_trial_caches([study for study, _ in studies])
                         for study, window in studies:
+                            # Get the best trial from the study using the standard method
                             best_trial = max(study.best_trials, key=lambda t: t.values[0])
                             row = best_trial.params.copy()
-                            row['value'] = best_trial.values
                             row['t'] = pd.to_datetime(window.start, unit='s')
+                            row['value'] = best_trial.values
+                            # row['study'] = window.study_name
+                            # row['best_trial_number'] = best_trial.number
                             data.append(row)
                         df = pd.DataFrame(data)
                         df.set_index('t', inplace=True)
                         df.to_csv(labels_file)
-                        logger.info(f"Saved {len(studies)} optimal configurations to {labels_file}")
+                        logger.info(f"Saved {len(studies)} optimal configurations to {labels_file} in {perf_log_text(label_save_start_time)}")
                     except Exception as e:
                         logger.error(f"Error saving configurations: {str(e)}")
+                        logger.error(traceback.format_exc())
                     
             except Exception as e:
                 logger.error(f"Error processing {trading_pair}: {str(e)}")
@@ -273,8 +282,7 @@ class PMMLabelGenerationTask(ParallelWorkerTask):
             finally:
                 await optimizer.dispose()
             
-            pair_duration = time.perf_counter() - pair_start_time
-            logger.info(f"Completed {trading_pair} in {pair_duration:.2f}")
+            logger.info(f"Completed {trading_pair} in {perf_log_text(pair_start_time)}")
 
 
 async def main():

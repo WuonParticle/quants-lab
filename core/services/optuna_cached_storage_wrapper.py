@@ -1,12 +1,18 @@
+import itertools
 import logging
-from typing import Dict, List, Optional, Any, Union
+import time
+from typing import Dict, List, Optional, Any, Union, Iterable
 import sqlalchemy
+import sqlalchemy.orm as sqlalchemy_orm
 import optuna
 import dataclasses
 from dataclasses import dataclass
 import contextlib
 from optuna.storages._rdb import models
 from optuna.storages._rdb.storage import _create_scoped_session
+from optuna.trial import FrozenTrial
+
+from core.utils.time_utils import perf_log_text
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +151,7 @@ class OptunaCachedStorageWrapper:
             study_name (str): The study name
             state (str): The trial state to count
             study_name_prefix (Optional[str]): Specific prefix cache to check
+            allow_cache (bool): Whether to use cached counts
         
         Returns:
             int: Count of trials with the specified state
@@ -169,7 +176,6 @@ class OptunaCachedStorageWrapper:
             
             result = query.scalar()
             return result or 0
-    
     
     def study_exists(self, study_name: str, prefix: Optional[str] = None) -> bool:
         """Check if a study with the given name exists.
@@ -196,4 +202,57 @@ class OptunaCachedStorageWrapper:
         except Exception as e:
             logger.error(f"Error checking if study '{study_name}' exists: {e}")
             return False
+    
+    def populate_study_trial_caches(self, studies: Iterable[optuna.Study]) -> None:
+        """
+        Efficiently caches trials for multiple studies in a single database operation.
+        
+        This method directly populates each study's internal cache (_thread_local.cached_all_trials)
+        to avoid repetitive database calls when accessing trials.
+        
+        Args:
+            studies: An iterable of optuna.Study objects to cache trials for
+            study_name_prefix: Prefix to filter studies by name instead of using an IN clause
+                               with study IDs. This is more efficient for large numbers of studies.
+        """
+        # logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)  # Use DEBUG for even more detail
+        logger.info(f"Caching trials for {len(studies)} studies.")
+        study_by_id = {study._study_id: study for study in studies}
+        populate_start_time = time.perf_counter()
+        if not study_by_id:
+            return
+        
+        try:
+            # Fetch all trials for all requested studies in a single query
+            with self._create_session() as session:
+                query = (
+                    session.query(models.TrialModel)
+                    .options(sqlalchemy_orm.subqueryload(models.TrialModel.params))
+                    .options(sqlalchemy_orm.subqueryload(models.TrialModel.values))
+                    .options(sqlalchemy_orm.subqueryload(models.TrialModel.user_attributes))
+                    .options(sqlalchemy_orm.subqueryload(models.TrialModel.system_attributes))
+                    .options(sqlalchemy_orm.subqueryload(models.TrialModel.intermediate_values))
+                )
+                query = (
+                    query.join(
+                        models.StudyModel,
+                        models.StudyModel.study_id == models.TrialModel.study_id
+                    )
+                    .filter(models.StudyModel.study_id.in_(study_by_id.keys()))
+                ).order_by(models.TrialModel.study_id)
+                
+                trial_models = query.all()
+                trials_by_study_id = {study_id: [self.storage._backend._build_frozen_trial_from_trial_model(trial_model) 
+                                                    for trial_model in group] 
+                                        for study_id, group in itertools.groupby(trial_models, lambda x: x.study_id)}
+                
+                # Populate each study's internal cache
+                for study_id, trials in trials_by_study_id.items():
+                    study = study_by_id[study_id]
+                    # Replace the get_trials method to use the eager version. use default argument to bind the correct trials variable here.
+                    study.get_trials = lambda trials = trials, **_: trials
+            logger.info(f"Loaded {len(trial_models)} trials in {perf_log_text(populate_start_time)}")
+        except Exception as e:
+            logger.exception(f"Error loading trials for studies: {e}")
+            raise e
     
