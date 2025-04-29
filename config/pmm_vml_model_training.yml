@@ -1,6 +1,6 @@
 tasks:
   pmm_vml_model_training:
-    task_class: "tasks.training.pmm_vml_model_training.PMMVMLModelTrainingTask"
+    task_class: "tasks.pmm_vml.pmm_vml_model_training.PMMVMLModelTrainingTask"
     config:
       # Paths
       feature_label_data_path: data/features_labels/  # Path to input feature/label CSVs
