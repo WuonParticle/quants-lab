@@ -15,7 +15,7 @@ from sklearn.preprocessing import StandardScaler
 
 from core.task_base import BaseTask
 from core.task_config_helpers import TaskConfigHelper
-from tasks.utils.pmm_vml_utils import generate_features
+from tasks.pmm_vml.pmm_vml_utils import generate_features
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -411,7 +411,7 @@ async def main():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         force=True
     )
-    # Run from command line with: python -m tasks.feature_generation.pmm_vml_feature_generation_task --config config/pmm_vml_feature_generation_task.yml
+    # Run from command line with: python -m tasks.pmm_vml.pmm_vml_feature_generation_task --config config/pmm_vml_feature_generation_task.yml
     config = BaseTask.load_single_task_config()
     task = PMMVMLFeatureGenerationTask("PMM VML Feature Generation", config)
     await task.run_once()

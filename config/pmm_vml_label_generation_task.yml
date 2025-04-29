@@ -1,0 +1,37 @@
+tasks:
+  PMM_VML_Label_Generation:
+    task_class: "tasks.pmm_vml.pmm_vml_label_generation_task.PMMVMLLabelGenerationTask"
+    config:
+      # Backtesting parameters
+      connector_name: "okx"
+      backtesting_interval: "1s"  
+      # candle_interval: "1m"  
+      start_time: "2025-04-08 01:00:00"  
+      end_time: "2025-04-09 02:00:00"    
+      backtest_offset: 1
+      backtest_window_step: 60
+      backtest_window_size: 61
+      
+      n_trials: 100
+      # n_trials: 2
+      total_amount_quote: 100
+      study_name_suffix: "multi_objective"
+      # debug_trial: 72
+      # force_new_study: True
+      # debug_study: "pmm_simple_label_generation_ADA-USDT_1s_101__1744135500.0"
+      
+      # Trading pairs to backtest
+      selected_pairs:
+        - ADA-USDT
+        - CRV-USDT
+        - BTC-USDT
+        - AVAX-USDT
+        - AAVE-USDT
+        - APT-USDT
+        - EIGEN-USDT
+        - HBAR-USDT
+        - ETH-USDT
+        - KAITO-USDT
+        - XRP-USDT
+        
+        
