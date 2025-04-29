@@ -1,6 +1,6 @@
 tasks:
   pmm_vml_feature_generation:
-    task_class: "tasks.feature_generation.pmm_vml_feature_generation_task.PMMVMLFeatureGenerationTask"
+    task_class: "tasks.pmm_vml.pmm_vml_feature_generation_task.PMMVMLFeatureGenerationTask"
     config:
       # Base configuration
       connector_name: okx

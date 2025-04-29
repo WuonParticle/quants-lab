@@ -1,6 +1,6 @@
 tasks:
   pmm_vml_deployment:
-    task_class: "tasks.deployment.pmm_vml_deployment_task.PMMVMLDeploymentTask"
+    task_class: "tasks.pmm_vml.pmm_vml_deployment_task.PMMVMLDeploymentTask"
     config:
       # Task specific config
       connector_name: okx # Exchange to deploy on

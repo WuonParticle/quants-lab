@@ -104,7 +104,7 @@ class PMMSimpleConfigGenerator(BaseStrategyConfigGenerator):
         return BacktestingConfig(config=config, start=self.start, end=self.end)
 
 
-class PMMLabelGenerationTask(ParallelWorkerTask):
+class PMMVMLLabelGenerationTask(ParallelWorkerTask):
     def __init__(self, name, config, **kwargs):
         super().__init__(name, config, **kwargs)
         # Move config parameters to __init__
@@ -155,7 +155,7 @@ class PMMLabelGenerationTask(ParallelWorkerTask):
     async def task_execute(self):
         random.seed(42)
         filtered_config = {k: v for k, v in self.config.items() if k not in ['timescale_config', 'postgres_config', 'mongo_config']}
-        logger.info(f"Starting PMMLabelGenerationTask at {datetime.datetime.now()} with config: {filtered_config}")
+        logger.info(f"Starting PMMVMLLabelGenerationTask at {datetime.datetime.now()} with config: {filtered_config}")
         
         (self.root_path / "data" / "labels").mkdir(parents=True, exist_ok=True)
         # Utilze a throwaway database as we are creating a huge number of studies
@@ -293,9 +293,9 @@ async def main():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         force=True
     )
-    # Run from command line with: python -m tasks.backtesting.pmm_simple_backtesting_task --config config/pmm_simple_backtesting_task.yml
+    # Run from command line with: python -m tasks.pmm_vml.pmm_vml_label_generation_task --config config/pmm_vml_label_generation_task.yml
     config = BaseTask.load_single_task_config()
-    task = PMMLabelGenerationTask("PMM Simple Label Generation", config)
+    task = PMMVMLLabelGenerationTask("PMM VML Label Generation", config)
     await task.run_once()
 
 if __name__ == "__main__":

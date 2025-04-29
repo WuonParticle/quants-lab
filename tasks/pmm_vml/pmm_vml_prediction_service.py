@@ -16,7 +16,7 @@ from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
 
-from tasks.utils.pmm_vml_utils import generate_features, preprocess_features
+from tasks.pmm_vml.pmm_vml_utils import generate_features, preprocess_features
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
