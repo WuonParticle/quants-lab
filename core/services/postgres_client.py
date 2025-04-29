@@ -150,4 +150,4 @@ class PostgresClient:
         host = host_port_parts[0]
         port = int(host_port_parts[1]) if len(host_port_parts) > 1 else 5432
         
-        return cls(host=host, port=port, user=username, password=password) 
+        return cls(host=host, port=port, user=username, password=password)
