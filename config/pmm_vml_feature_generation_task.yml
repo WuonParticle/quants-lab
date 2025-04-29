@@ -1,0 +1,63 @@
+tasks:
+  pmm_vml_feature_generation:
+    task_class: "tasks.feature_generation.pmm_vml_feature_generation_task.PMMVMLFeatureGenerationTask"
+    config:
+      # Base configuration
+      connector_name: okx
+      trading_pairs:
+        - ADA-USDT
+        - CRV-USDT
+        - BTC-USDT
+        - AVAX-USDT
+        - AAVE-USDT
+        - APT-USDT
+        - EIGEN-USDT
+        - HBAR-USDT
+        - ETH-USDT
+        - KAITO-USDT
+        - XRP-USDT
+        
+      # Path configuration
+      label_data_path: data/labels/
+      feature_output_path: data/features_labels/
+      
+      # Data parameters
+      candle_intervals: ["1m"]
+      label_lookback_minutes: 1440 # 24 hours lookback for labels
+      
+      # Feature generation configuration
+      feature_generation_config:
+        # Bollinger Bands parameters
+        bbands_length_1: 20
+        bbands_std_1: 2.0
+        bbands_length_2: 50
+        bbands_std_2: 2.0
+        
+        # MACD parameters - using defaults
+        # macd_fast_1: 12
+        # macd_slow_1: 26
+        # macd_signal_1: 9
+        # macd_fast_2: 8
+        # macd_slow_2: 21
+        # macd_signal_2: 5
+        
+        # RSI parameters - using defaults
+        # rsi_length_1: 14
+        # rsi_length_2: 21
+        
+        # Moving Average parameters - using defaults
+        # sma_length_1: 20
+        # sma_length_2: 50
+        # ema_length_1: 20
+        # ema_length_2: 50
+        
+        # Volatility and momentum - using defaults
+        # atr_length: 14
+        # stoch_k: 14
+        # stoch_d: 3
+        # adx_length: 14
+      
+      # Label smoothing configuration
+      smoothing_config:
+        max_smoothing_gap_minutes: 30  # Maximum time gap to interpolate across
+        edge_case_fill_method: "ffill"  # Options: ffill, bfill, drop 
