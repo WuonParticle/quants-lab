@@ -12,6 +12,7 @@ from core.task_base import BaseTask
 from core.data_sources.clob import CLOBDataSource
 from core.services.mongodb_client import MongoClient
 from core.services.backend_api_client import BackendAPIClient
+from core.task_config_helpers import TaskConfigHelper
 from tasks.deployment.models import ConfigCandidate
 
 logging.getLogger("asyncio").setLevel(logging.CRITICAL)
@@ -36,11 +37,12 @@ class DeploymentBaseTask(BaseTask):
 
     def __init__(self, name: str, frequency: timedelta, config: Dict[str, Any]):
         super().__init__(name=name, frequency=frequency, config=config)
-        self.backend_api_client = BackendAPIClient(self.config["backend_api_server"])
-        self.mongo_client = MongoClient(self.config["mongo_uri"], database="quants_lab")
+        self.config_helper = TaskConfigHelper(config)
+        self.backend_api_client = BackendAPIClient(self.config.get("backend_api_server", "localhost"))
+        self.mongo_client = self.config_helper.create_mongo_client()
         self.root_path = "../../.."
         self.clob = CLOBDataSource()
-        self.connector_name = self.config.get("connector_name", "binance_perpetual")
+        self.connector_name = self.config["connector_name"]
         self.connector_instance = None
         self.trading_rules = None
         self.trading_pairs = []
@@ -143,7 +145,7 @@ class DeploymentBaseTask(BaseTask):
                         logging.info(f"Config candidates found, preparing and launching bot...")
                         await self._prepare_and_launch_bots(adjusted_candidates)
             except Exception as e:
-                logging.error(f"Error during deploy task: {e}")
+                logging.exception(f"Error during deploy task: {e}")
             await asyncio.sleep(self.deploy_task_interval)
 
     async def _available_bot_slots(self):
@@ -165,7 +167,7 @@ class DeploymentBaseTask(BaseTask):
             self.last_prices = await self.connector_instance.get_last_traded_prices(self.trading_pairs)
             self._update_min_notional_size_dict()
         except Exception as e:
-            logging.error(f"Error during get last traded prices: {e}")
+            logging.exception(f"Error during get last traded prices: {e}")
 
     def _update_min_notional_size_dict(self):
         if self.connector_name in ["okx_perpetual"]:
@@ -274,7 +276,7 @@ class DeploymentBaseTask(BaseTask):
             }
             self.archived_configs.extend([candidate.id for candidate in final_candidates])
         else:
-            logging.error(f"There was an error trying to deploy: {deploy_resp['error']} - {deploy_resp['error']}")
+            logging.error(f"There was an error trying to deploy: {deploy_resp}")
 
     async def _control_task(self):
         while self.running:
@@ -295,7 +297,7 @@ class DeploymentBaseTask(BaseTask):
                             controller_info["controller_id"] = controller_id
                             self._control_pnl(controller_info)
             except Exception as e:
-                logging.error(f"Error during control task: {e}")
+                logging.exception(f"Error during control task: {e}")
             await asyncio.sleep(self.control_task_interval)
 
     def _control_error_logs(self, bot: Dict[str, Any]):
