@@ -43,7 +43,7 @@ class TaskConfigHelper:
     
     def create_mongo_client(self) -> MongoClient:
         """Create a MongoClient from the configuration"""
-        return MongoClient(**self.config.get("db_config", {}))
+        return MongoClient(**self.config.get("mongo_config", {}))
     
     def filter_trading_rules(self, trading_rules: TradingRules, logger=None) -> TradingRules:
         """

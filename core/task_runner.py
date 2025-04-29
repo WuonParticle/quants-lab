@@ -33,7 +33,8 @@ class TaskRunner:
         if os.path.exists(config_prefixed_path):
             with open(config_prefixed_path, 'r') as f:
                 return yaml.safe_load(f)
-            
+           
+        # TODO: only check if extension is missing
         with_yml_path = config_prefixed_path + ".yml"
         if os.path.exists(with_yml_path):
             with open(with_yml_path, 'r') as f:
