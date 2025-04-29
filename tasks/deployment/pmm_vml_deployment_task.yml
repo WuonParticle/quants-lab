@@ -1,0 +1,61 @@
+tasks:
+  pmm_vml_deployment:
+    task_class: "tasks.deployment.pmm_vml_deployment_task.PMMVMLDeploymentTask"
+    config:
+      # Task specific config
+      connector_name: okx # Exchange to deploy on
+      trading_pairs_to_deploy: # List of pairs to manage deployments for
+        - APT-USDT
+
+      mongo_uri: ${MONGO_URI}
+      backend_api_server: ${BACKEND_API_SERVER}
+      min_config_timestamp: 0
+      recycle_configs: true
+      frequency_seconds: 600 # check for deployment opportunities every 10 minutes
+
+      base_controller_config:
+        # --- Non-predicted essential params ---
+        controller_name: pmm_vml
+        controller_type: market_making
+        total_amount_quote: 1000.0
+        leverage: 20
+        # --- Buy/Sell levels ---
+        buy_levels: 2
+        sell_levels: 2
+        # --- MQTT Params ---
+        mqtt_topic_prefix: "hbot/pmm_vml_params"
+        # --- Default predicted params (used until first signal) ---
+        default_buy_0_bps: 10.0
+        default_buy_1_step: 10.0
+        default_sell_0_bps: 10.0
+        default_sell_1_step: 10.0
+        default_take_profit_pct: 2.0
+        default_stop_loss_pct: 3.0
+        # --- Other Market Making Configs ---
+        order_refresh_time: 30.0
+        cooldown_time: 15.0
+        position_mode: HEDGE
+        candles_config:
+          - connector: okx
+            trading_pair: APT-USDT
+            interval: 1m
+            max_records: 100
+
+      filter_candidate_params: {} # Minimal filtering as we generate specific pairs
+
+      deploy_params:
+        max_bots: 5 # Max concurrent bot instances for this task
+        max_controller_configs: 1 # Deploy one controller (one trading pair) per bot instance
+        script_name: "v2_with_controllers.py"
+        image_name: "hummingbot/hummingbot:latest"
+        credentials: "master_account"
+        time_to_cash_out: 259200 # 3 days in seconds (optional)
+
+      control_params:
+        controller_max_drawdown: 0.05 # 5% max loss per controller
+        controller_max_pnl: 0.10 # 10% max profit per controller
+        global_time_limit: 86400 # Stop bots after 24 hours (1 day)
+        min_early_stop_time: 3600 # 1 hour
+        max_early_stop_time: 43200 # 12 hours
+        partial_drawdown: 0.02 # Early stop if 2% loss
+        partial_profit: 0.05 # Early stop if 5% profit 
