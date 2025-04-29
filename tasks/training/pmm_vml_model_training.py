@@ -16,6 +16,7 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.impute import SimpleImputer
 
 from core.task_base import BaseTask
+from tasks.utils.pmm_vml_utils import preprocess_features
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
