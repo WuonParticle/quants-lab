@@ -281,7 +281,7 @@ class BackendAPIClient(ClientBase):
                 "markets": {},
                 "candles_config": [],
                 "controllers_config": controller_configs,
-                "config_update_interval": 10,
+                # "config_update_interval": 10,
                 "script_file_name": script_name,
             }
         }

@@ -73,8 +73,8 @@ class BaseTask(ABC):
                 "database": os.getenv("POSTGRES_DB", "optimization_database")
             },
             "mongo_config": {
-                "uri": os.getenv("MONGO_URI"),
-                "db": os.getenv("MONGO_DB")
+                "uri": os.getenv("MONGO_URI", "mongodb://localhost:27017"),
+                "database": os.getenv("MONGO_DB", "quants_lab")
             }
         }
 
