@@ -10,8 +10,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 
 import pandas as pd
-import numpy as np
-from sklearn.preprocessing import StandardScaler
 
 from core.task_base import BaseTask
 from core.task_config_helpers import TaskConfigHelper
@@ -37,7 +35,6 @@ class PMMVMLFeatureGenerationTask(BaseTask):
         self.label_data_path = Path(config.get("label_data_path", "data/labels/"))
         self.feature_output_path = Path(config.get("feature_output_path", "data/features_labels/"))
         self.candle_intervals = config.get("candle_intervals", ["1m"])
-        self.label_lookback_minutes = config.get("label_lookback_minutes", 1440)
         self.feature_generation_config = config.get("feature_generation_config", {})
         self.smoothing_config = config.get("smoothing_config", {
             "max_smoothing_gap_minutes": 30,
