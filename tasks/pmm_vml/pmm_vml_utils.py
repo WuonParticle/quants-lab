@@ -63,26 +63,16 @@ def generate_features(candles_df: pd.DataFrame) -> pd.DataFrame:
     df_processed = df_processed.drop(columns=price_columns)
     
     # Create volume-based features with just the available 'volume' column
-    if all(col in df_processed.columns for col in ['taker_buy_quote_volume', 'quote_asset_volume']):
-        # Create buy/sell volume ratio
-        df_processed['buy_volume_ratio'] = df_processed['taker_buy_quote_volume'] / df_processed['quote_asset_volume']
-        df_processed = df_processed.drop(columns=['taker_buy_quote_volume'])
-    elif 'volume' in df_processed.columns:
         # If we don't have taker_buy_quote_volume but have volume, use placeholders
-        logger.warning("taker_buy_quote_volume column not found, using placeholders for volume features")
-        df_processed['volume_change'] = df_processed['volume'].pct_change()
-        df_processed['volume_sma_10'] = df_processed['volume'].rolling(window=10).mean() / df_processed['volume']
-        df_processed['rel_volume'] = df_processed['volume'] / df_processed['volume'].rolling(window=20).mean()
-        df_processed['buy_volume_ratio'] = 0.5  # Placeholder
-    else:
-        logger.warning("Volume columns not found, using placeholders for volume features")
-        df_processed['buy_volume_ratio'] = 0.5  # Placeholder
+    df_processed['volume_change'] = df_processed['volume'].pct_change()
+    df_processed['volume_sma_10'] = df_processed['volume'].rolling(window=10).mean() / df_processed['volume']
+    df_processed['rel_volume'] = df_processed['volume'] / df_processed['volume'].rolling(window=20).mean()
     
     # Additional unnecessary columns to drop if they exist
     columns_to_drop = [
-        'taker_buy_base_volume', 'volume', 'close_time', 
+        'taker_buy_base_volume', "taker_buy_quote_volume", "volume", 'close_time', 
         'taker_buy_volume', 'number_of_trades', 'buy_volume',
-        'sell_volume', 'unused', 'quote_asset_volume'
+        'sell_volume', 'unused', 'quote_asset_volume', "timestamp", "n_trades"
     ]
     # Only drop columns that actually exist
     cols_to_drop = [col for col in columns_to_drop if col in df_processed.columns]
