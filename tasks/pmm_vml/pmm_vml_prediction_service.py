@@ -13,8 +13,6 @@ import paho.mqtt.client as mqtt
 
 from hummingbot.data_feed.candles_feed.candles_factory import CandlesFactory
 from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
-from sklearn.preprocessing import StandardScaler
-from sklearn.impute import SimpleImputer
 
 from tasks.pmm_vml.pmm_vml_utils import generate_features, preprocess_features
 
@@ -240,10 +238,9 @@ class PMMVMLPredictionService:
                         
                         # Get the imputer and scaler for this trading pair
                         imputer = self.imputers.get(trading_pair)
-                        scaler = self.scalers.get(trading_pair)
                         
                         # Preprocess features (handle missing values and scale)
-                        processed_features = preprocess_features(features_df, imputer, scaler)
+                        processed_features = preprocess_features(features_df, imputer)
                         
                         # Skip if we don't have enough data after preprocessing
                         if processed_features.empty:
@@ -307,22 +304,22 @@ async def main():
     
     # Get paths
     root_path = Path(os.path.abspath(os.path.join(os.getcwd())))
-    model_path = root_path / "models" / "pmm_vml"
+    model_path = root_path / "data" / "models" / "pmm_vml"
     scaler_path = model_path
     imputer_path = model_path
     
     # Configure trading pairs
-    trading_pairs = ["BTC-USDT", "ETH-USDT", "SOL-USDT"]
+    trading_pairs = ["APT-USDT"]
     
     # Create CandlesConfig objects
     candles_configs = []
     for trading_pair in trading_pairs:
         candles_configs.append(
             CandlesConfig(
-                connector="binance_perpetual",
+                connector="okx",
                 trading_pair=trading_pair,
                 interval="1m",
-                max_records=1000  # Sufficient for feature calculation
+                max_records=100  # Sufficient for feature calculation
             )
         )
     

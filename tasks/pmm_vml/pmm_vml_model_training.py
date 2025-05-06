@@ -11,12 +11,10 @@ import joblib
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.multioutput import MultiOutputRegressor
-from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.impute import SimpleImputer
 
 from core.task_base import BaseTask
-from tasks.pmm_vml.pmm_vml_utils import preprocess_features
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -34,7 +32,7 @@ class PMMVMLModelTrainingTask(BaseTask):
         
         # Configuration parameters
         self.feature_label_data_path = Path(config.get("feature_label_data_path", "data/features_labels/"))
-        self.model_output_path = Path(config.get("model_output_path", "models/pmm_vml/"))
+        self.model_output_path = Path(config.get("model_output_path", "data/models/pmm_vml/"))
         self.trading_pairs = config.get("trading_pairs", [])
         self.test_size = config.get("test_size", 0.2)
         self.random_state = config.get("random_state", 42)
@@ -148,25 +146,20 @@ class PMMVMLModelTrainingTask(BaseTask):
             X_imputed, y, test_size=self.test_size, random_state=self.random_state
         )
         
-        # Step 5: Scale features
-        scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train)
-        X_test_scaled = scaler.transform(X_test)
-        
         # Step 6: Initialize and train the model
         base_model = RandomForestRegressor(**self.model_params, random_state=self.random_state)
         model = MultiOutputRegressor(base_model)
         
         try:
             logger.info(f"Training model for {trading_pair}...")
-            model.fit(X_train_scaled, y_train)
+            model.fit(X_train, y_train)
             logger.info(f"Model training completed for {trading_pair}")
         except Exception as e:
             logger.error(f"Error training model for {trading_pair}: {e}")
             return False
         
         # Step 7: Evaluate the model
-        y_pred = model.predict(X_test_scaled)
+        y_pred = model.predict(X_test)
         
         # Calculate metrics for each target variable
         logger.info(f"Model evaluation for {trading_pair}:")
@@ -177,12 +170,10 @@ class PMMVMLModelTrainingTask(BaseTask):
         
         # Step 8: Save the model and scaler
         model_file = self.model_output_path / f"{normalized_pair}_model.joblib"
-        scaler_file = self.model_output_path / f"{normalized_pair}_scaler.joblib"
         imputer_file = self.model_output_path / f"{normalized_pair}_imputer.joblib"
         
         try:
             joblib.dump(model, model_file)
-            joblib.dump(scaler, scaler_file)
             joblib.dump(imputer, imputer_file)
             logger.info(f"Model and preprocessing objects saved for {trading_pair}")
             
