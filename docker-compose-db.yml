@@ -11,7 +11,8 @@ services:
       - "5432:5432"
       - "8080:5432" # for debugging from wsl
     volumes:
-      - timescale_data:/var/lib/postgresql/data
+      - /mnt/timescaledisk/pgdata:/var/lib/postgresql/data
+      - ./postgres_conf/postgresql.conf:/etc/postgresql/postgresql.conf:ro
     restart: unless-stopped
 
   mongodb:
@@ -34,5 +35,6 @@ networks:
     driver: bridge
 
 volumes:
-  timescale_data:
+  # 
+  # timescale_data:
   mongodb_data:
