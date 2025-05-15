@@ -1,0 +1,33 @@
+services:
+  # VPN container that handles the connection
+  vpn:
+    image: quants-lab-vpn
+    container_name: vpn-container
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    restart: unless-stopped
+    volumes:
+      - ${VPN_CONFIG_PATH}:/vpn/config.ovpn
+      - ${VPN_AUTH_PATH}:/vpn/auth.txt
+    # DNS servers
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    environment:
+      - TIMESCALE_HOST=${TIMESCALE_HOST:-timescaledb}
+      - MONGO_HOST=${MONGO_HOST:-mongodb}
+      - DOCKER_NETWORK=${DOCKER_NETWORK:-hummingbot-vpn}
+    networks:
+      - hummingbot-vpn
+    healthcheck:
+      test: ["CMD", "nc", "-z", "-4", "localhost", "5432"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  hummingbot-vpn:
+    external: true 

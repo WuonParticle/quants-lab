@@ -1,0 +1,27 @@
+FROM alpine:latest
+
+# Install necessary packages including OpenVPN
+RUN apk add --no-cache \
+    bash \
+    curl \
+    netcat-openbsd \
+    openvpn \
+    iputils \
+    iptables \
+    iproute2 \
+    procps \
+    socat
+
+# Create directory for VPN configs
+RUN mkdir -p /vpn
+
+# Copy the connectivity check and entrypoint scripts
+COPY --chmod=0755 scripts/check_vpn_connectivity.sh /check_vpn_connectivity.sh
+COPY --chmod=0755 scripts/vpn-entrypoint.sh /entrypoint.sh
+
+# Mark container as healthy when port forwarding is working
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD nc -z -w1 localhost 5432 && nc -z -w1 localhost 27017 || exit 1
+
+# Set the entrypoint
+ENTRYPOINT ["/entrypoint.sh"] 
