@@ -3,6 +3,9 @@
 .PHONY: install
 .PHONY: reference-local-hummingbot
 
+# Suppress Docker Compose orphan warnings
+export COMPOSE_IGNORE_ORPHANS=true
+
 uninstall:
 	conda env remove -n quants-lab -y
 
