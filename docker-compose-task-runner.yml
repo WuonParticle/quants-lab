@@ -2,7 +2,8 @@ services:
   task-runner:
     image: hummingbot/quants-lab:latest
     volumes:
-      - .:/quants-lab
+      # Allow compose file to be placed in any directory
+      - ${PWD:-.}:/quants-lab
     build: .
     # env_file:
     #  - .env
@@ -17,3 +18,31 @@ services:
       options:
         max-size: "200m"
         max-file: "10"
+
+  # Same task-runner but using VPN container network
+  vpn-task-runner:
+    image: hummingbot/quants-lab:latest
+    volumes:
+      - ${PWD:-.}:/quants-lab
+    build: .
+    working_dir: /quants-lab
+    environment:
+      # When using VPN network, connect via localhost with port forwarding
+      - PYTHONUNBUFFERED=1
+      # Add debug information
+    # Use the VPN container network
+    network_mode: "container:vpn-container"
+    command: "conda run --no-capture-output -n quants-lab python3 run_tasks.py --config ${TASK_CONFIG:-config/tasks.yml}"
+    deploy:
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200m"
+        max-file: "10"
+
+networks:
+  hummingbot-vpn:
+    external: true

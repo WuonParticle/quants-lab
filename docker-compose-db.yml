@@ -14,6 +14,8 @@ services:
       - /mnt/timescaledisk/pgdata:/var/lib/postgresql/data
       - ./postgres_conf/postgresql.conf:/etc/postgresql/postgresql.conf:ro
     restart: unless-stopped
+    networks:
+      - hummingbot-vpn  
 
   mongodb:
     image: mongo:latest
@@ -29,10 +31,13 @@ services:
     restart: unless-stopped
     networks:
       - mongodb_network
+      - hummingbot-vpn  
 
 networks:
   mongodb_network:
     driver: bridge
+  hummingbot-vpn:
+    external: true
 
 volumes:
   # 

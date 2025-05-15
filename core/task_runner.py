@@ -58,7 +58,8 @@ class TaskRunner:
         tasks = []
         common_config = BaseTask.get_common_config()
         self.initialize_hummingbot_client_config()
-            
+        self.enable_vpn_compatibility()
+        
     # TODO: add a run_sequentially + top level frequency_hours flag to task config file which allows 
     #       running tasks in sequence with a frequency_hours 
         for task_name, task_config in self.tasks_config["tasks"].items():
@@ -91,6 +92,11 @@ class TaskRunner:
 
         return tasks
 
+    def enable_vpn_compatibility(self):
+        # TODO: only enable if use_vpn is on (needs to be passed to run_tasks first)
+        # Disable TLS 1.3 to avoid vpn issues
+        from hummingbot.core.web_assistant.connections.connections_factory import ConnectionsFactory
+        ConnectionsFactory().set_disable_tls_1_3(disable=True)
 
     def initialize_hummingbot_client_config(self):
         config_password = os.getenv("HUMMGINGBOT_CONFIG_PASSWORD")
