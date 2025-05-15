@@ -175,3 +175,49 @@ You're now ready to use QuantsLab!
 
 - **Features**
   - Signals
+
+## Running tasks with VPN support
+
+For tasks that need to access services that may be geo-restricted (like Binance API), the Makefile supports running tasks through a VPN connection.
+
+### VPN Configuration Requirements
+- OpenVPN configuration file (*.ovpn)
+- VPN authentication file (containing username and password)
+
+### Starting the VPN
+First, start the VPN container:
+
+```bash
+make start-vpn vpn_config=~/path/to/config.ovpn vpn_auth=~/path/to/auth.txt
+```
+
+If you place your configuration files in the default locations (`~/vpn/config.ovpn` and `~/vpn/auth.txt`), you can simply run:
+
+```bash
+make start-vpn
+```
+
+### Routing Specific Domains Through VPN
+
+To selectively route only specific domains through the VPN (can improve performance):
+
+```
+# Add to your OpenVPN config file (*.ovpn)
+route api.binance.com 255.255.255.255 vpn_gateway
+route stream.binance.com 255.255.255.255 vpn_gateway
+```
+
+### Running Tasks via VPN
+Once the VPN container is running, you can run tasks through it:
+
+```bash
+make run-task-d config=binance_candles.yml use_vpn=true
+make run-task-d config=binance_candles.yml service_name="binance_candles_task" use_vpn=true
+```
+
+To stop the VPN container:
+
+```bash
+make stop-vpn
+```
+
