@@ -138,7 +138,7 @@ class CLOBDataSource:
                     start_time=new_start_time,
                     end_time=new_end_time,
                     interval=interval
-                ))
+                ), return_collected_on_error=True)
                 if candles_df is None:
                     return Candles(candles_df=pd.DataFrame(), connector_name=connector_name, trading_pair=trading_pair,
                                    interval=interval)
