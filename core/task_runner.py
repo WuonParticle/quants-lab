@@ -63,28 +63,8 @@ class TaskRunner:
         global_task_class_path = self.global_config.get("task_class")
         global_config_values = self.global_config.get("config", {})
 
-        config_password = os.getenv("HUMMGINGBOT_CONFIG_PASSWORD")
-        source_path = os.getenv("HUMMGINGBOT_SOURCE_PATH")
-        if source_path is not None:
-            path = Path(source_path)
-            if not path.exists():
-                logger.warning(f"Source path {source_path} does not exist, using default root path")
-            else:
-                try: 
-                    # This is the easiest way because as soon as other modules are imported, they set a large number of properties
-                    hummingbot.root_path = lambda: path
-                    if config_password is not None:
-                        from hummingbot.client.config.config_crypt import ETHKeyFileSecretManger
-                        from hummingbot.client.config.security import Security
-                        secrets_manager = ETHKeyFileSecretManger(config_password)
-                        Security.login(secrets_manager)
-                        # TODO check if the await Security.wait_til_decryption_done() is needed
-                    
-                    from hummingbot.client.config.config_helpers import load_client_config_map_from_file
-                    _ = load_client_config_map_from_file()
-                except Exception as e:
-                    logger.warning(f"Error loading client config map from file: {e} continuing without custom config")
-        
+        self.initialize_hummingbot_client_config()
+
         # Disable TLS 1.3 to avoid vpn issues
         from hummingbot.core.web_assistant.connections.connections_factory import ConnectionsFactory
         ConnectionsFactory().set_disable_tls_1_3(disable=True)
@@ -136,6 +116,29 @@ class TaskRunner:
                 continue
 
         return tasks
+
+    def initialize_hummingbot_client_config(self):
+        config_password = os.getenv("HUMMGINGBOT_CONFIG_PASSWORD")
+        source_path = os.getenv("HUMMGINGBOT_SOURCE_PATH")
+        if source_path is not None:
+            path = Path(source_path)
+            if not path.exists():
+                logger.warning(f"Source path {source_path} does not exist, using default root path")
+            else:
+                try:
+                    # This is the easiest way because as soon as other modules are imported, they set a large number of properties
+                    hummingbot.root_path = lambda: path
+                    if config_password is not None:
+                        from hummingbot.client.config.config_crypt import ETHKeyFileSecretManger
+                        from hummingbot.client.config.security import Security
+                        secrets_manager = ETHKeyFileSecretManger(config_password)
+                        Security.login(secrets_manager)
+                        # TODO check if the await Security.wait_til_decryption_done() is needed
+
+                    from hummingbot.client.config.config_helpers import load_client_config_map_from_file
+                    _ = load_client_config_map_from_file()
+                except Exception as e:
+                    logger.warning(f"Error loading client config map from file: {e} continuing without custom config")
 
     async def run(self):
         """Run all configured tasks"""
