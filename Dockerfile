@@ -10,6 +10,9 @@ RUN apt-get update && \
 # Set the working directory in the container
 WORKDIR /quants-lab
 
+# Add Git safe.directory configuration
+RUN git config --global --add safe.directory /quants-lab
+
 # Create the environment from the environment.yml file (do first to avoid invalidating the environment layer cache)
 COPY environment.yml .
 # If cchardet fails, we'll install it separately
@@ -20,6 +23,10 @@ RUN conda env create -f environment.yml
 
 # Make RUN commands use the new environment
 SHELL ["conda", "run", "-n", "quants-lab", "/bin/bash", "-c"]
+
+# Copy and run the update_glibcxx.sh script (if you are getting errors about missing GLIBCXX_3.4.32)
+# COPY scripts/update_glibcxx.sh .
+# RUN chmod +x update_glibcxx.sh && ./update_glibcxx.sh
 
 # Copy Optional wheels directory and handle wheel installation (for utilizing local hummingbot version)
 COPY --parents wheels* . 
@@ -43,6 +50,8 @@ COPY research_notebooks/ research_notebooks/
 COPY controllers/ controllers/
 COPY tasks/ tasks/
 COPY conf/ conf/
+
+
 
 # Default command now uses the task runner
 CMD ["conda", "run", "--no-capture-output", "-n", "quants-lab", "python3", "run_tasks.py"]
