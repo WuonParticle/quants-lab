@@ -20,7 +20,10 @@ class TaskRunner:
         # TODO: provide option to disable polling api utils class sys.modules['core.services.backend_api_client'] = None
         self.config_path = config_path
         self.orchestrator = TaskOrchestrator()
-        self.tasks_config = self.load_config()
+        self.global_config = self.load_config()
+        self.tasks_config = self.global_config.get("tasks", {})
+        self.run_sequentially = self.global_config.get("run_sequentially", False)
+        self.global_frequency_hours = self.global_config.get("frequency_hours")
 
     def load_config(self) -> Dict[str, Any]:
         """Load task configuration from YAML file"""
@@ -57,28 +60,47 @@ class TaskRunner:
         """Initialize all enabled tasks from configuration"""
         tasks = []
         common_config = BaseTask.get_common_config()
+
         self.initialize_hummingbot_client_config()
         self.enable_vpn_compatibility()
-        
-    # TODO: add a run_sequentially + top level frequency_hours flag to task config file which allows 
-    #       running tasks in sequence with a frequency_hours 
-        for task_name, task_config in self.tasks_config["tasks"].items():
+
+        global_task_class_path = self.global_config.get("task_class")
+        global_config_values = self.global_config.get("config", {})
+        for task_name, task_config in self.tasks_config.items():
             if not task_config.get("enabled", True):
                 logger.info(f"Skipping disabled task: {task_name}")
                 continue
 
             try:
-                # Import task class
-                task_class = self.import_task_class(task_config["task_class"])
+                # Determine task_class: task-specific or global
+                task_class_path = task_config.get("task_class", global_task_class_path)
+                if not task_class_path:
+                    logger.error(f"Task class not defined for task {task_name} and no global task_class is set.")
+                    continue
+                task_class = self.import_task_class(task_class_path)
                 
-                # Merge common config with task-specific config
-                config = {**common_config, **task_config.get("config", {})}
+                # Merge common_config, global_config_values, and task_specific_config
+                # Order of precedence: task_specific > global_config_values > common_config
+                config = {**common_config, **global_config_values, **task_config.get("config", {})}
                 
-                frequency_hours = task_config.get("frequency_hours", None)
+                # TODO: implement support for task_groups so that  
+                # 1. multiple groups of sequential tasks can be run in parallel
+                # 2. multiple groups of parallel tasks can be run in sequence
+                frequency_hours = task_config.get("frequency_hours")
+                if self.run_sequentially and frequency_hours is not None:
+                    logger.warning(f"Task {task_name} has frequency_hours defined but run_sequentially is true. Task-level frequency will be ignored.")
+                
+                current_frequency = None
+                if self.run_sequentially:
+                    if self.global_frequency_hours is not None:
+                        current_frequency = timedelta(hours=self.global_frequency_hours)
+                elif frequency_hours is not None: # run in parallel
+                    current_frequency = timedelta(hours=frequency_hours)
+
                 # Create task instance
                 task = task_class(
                     name=task_name,
-                    frequency=timedelta(hours=frequency_hours) if frequency_hours is not None else None,
+                    frequency=current_frequency,
                     config=config
                 )
                 tasks.append(task)
@@ -125,11 +147,19 @@ class TaskRunner:
         """Run all configured tasks"""
         try:
             tasks = self.initialize_tasks()
-            for task in tasks:
-                self.orchestrator.add_task(task)
-            
-            logger.info(f"Starting orchestrator with {len(tasks)} tasks")
-            await self.orchestrator.run()
+            if not tasks:
+                logger.info("No tasks to run.")
+                return
+
+            if self.run_sequentially:
+                if self.global_frequency_hours is None:
+                    logger.warning("Running tasks sequentially but no global frequency_hours is set. Tasks will run once in order.")
+                await self.orchestrator.run_sequentially(tasks, timedelta(hours=self.global_frequency_hours) if self.global_frequency_hours is not None else None)
+            else:
+                for task in tasks:
+                    self.orchestrator.add_task(task)
+                logger.info(f"Starting orchestrator with {len(tasks)} tasks in parallel.")
+                await self.orchestrator.run()
 
         except Exception as e:
             logger.error(f"Error running tasks: {e}")
