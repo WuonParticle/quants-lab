@@ -1,0 +1,24 @@
+# NOTE: this format is only temporary until task groups are implemented
+run_sequentially: true
+frequency_hours: 1
+task_class: "tasks.data_collection.candles_downloader_task.CandlesDownloaderTask"
+config:
+  connector_name: "okx"
+  base_asset_filter:
+    - BCH
+  quote_asset_filter:
+    - "USDT"
+  cleanup_old_data: false  
+tasks:
+    m_plus_downloader:
+      config:
+        intervals: 
+          - "5m"
+          - "15m"
+          - "1h"
+        days_data_retention: 2
+    m_downloader:
+      config:
+        intervals: 
+          - "1m"
+        days_data_retention: 1
