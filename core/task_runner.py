@@ -89,8 +89,6 @@ class TaskRunner:
         from hummingbot.core.web_assistant.connections.connections_factory import ConnectionsFactory
         ConnectionsFactory().set_disable_tls_1_3(disable=True)
         
-    # TODO: add a run_sequentially + top level frequency_hours flag to task config file which allows 
-    #       running tasks in sequence with a frequency_hours 
         for task_name, task_config in self.tasks_config.items():
             if not task_config.get("enabled", True):
                 logger.info(f"Skipping disabled task: {task_name}")
