@@ -65,10 +65,8 @@ class TaskRunner:
 
         self.initialize_hummingbot_client_config()
 
-        # Disable TLS 1.3 to avoid vpn issues
-        from hummingbot.core.web_assistant.connections.connections_factory import ConnectionsFactory
-        ConnectionsFactory().set_disable_tls_1_3(disable=True)
-        
+        self.enable_vpn_compatibility()
+
         for task_name, task_config in self.tasks_config.items():
             if not task_config.get("enabled", True):
                 logger.info(f"Skipping disabled task: {task_name}")
@@ -116,6 +114,12 @@ class TaskRunner:
                 continue
 
         return tasks
+
+    def enable_vpn_compatibility(self):
+        # TODO: only enable if use_vpn is on (needs to be passed to run_tasks first)
+        # Disable TLS 1.3 to avoid vpn issues
+        from hummingbot.core.web_assistant.connections.connections_factory import ConnectionsFactory
+        ConnectionsFactory().set_disable_tls_1_3(disable=True)
 
     def initialize_hummingbot_client_config(self):
         config_password = os.getenv("HUMMGINGBOT_CONFIG_PASSWORD")
