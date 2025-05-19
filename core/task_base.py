@@ -58,11 +58,7 @@ class BaseTask(ABC):
         try:
             await self.execute()
         except Exception as e:
-            logger.error(f"Error executing task {self.name}: {e}")
-            logger.error(f"Full traceback: {traceback.format_exc()}")
-            # Sometimes logger is not working, so print to the console as well
-            print(f"Error executing task {self.name}: {e}")
-            print(f"Full traceback: {traceback.format_exc()}")
+            logger.exception(f"Error executing task {self.name}: {e}")
 
     async def run_with_frequency(self):
         while True:
@@ -72,8 +68,7 @@ class BaseTask(ABC):
                     self.last_run = now
                     await self.execute()
                 except Exception as e:
-                    logger.error(f"Error executing task {self.name}: {e}")
-                    logger.error(f"Full traceback: {traceback.format_exc()}")
+                    logger.exception(f"Error executing task {self.name}: {e}")
             if self.frequency is None:
                 return # if frequency is None, exit to support debugging
             await asyncio.sleep(1)  # Check every second
@@ -237,3 +232,29 @@ class TaskOrchestrator:
     async def run(self):
         task_coroutines = [task.run_with_frequency() for task in self.tasks]
         await asyncio.gather(*task_coroutines)
+
+    async def run_sequentially(self, tasks: list[BaseTask], global_frequency: Optional[timedelta]):
+        """Run tasks sequentially, respecting the global frequency."""
+        if not tasks:
+            return
+
+        while True:
+            start_time = datetime.now()
+            logger.info(f"Starting sequential run of {len(tasks)} tasks at {start_time}.")
+            for task in tasks:
+                logger.info(f"Running task: {task.name}")
+                await task.run_once() # Assumes run_once executes the task logic without frequency checks
+                logger.info(f"Finished task: {task.name}")
+            
+            if global_frequency is None:
+                logger.info("Global frequency not set. Sequential run complete.")
+                break # Run once if no global frequency
+
+            # Calculate time spent and sleep for the remaining frequency duration
+            time_spent = datetime.now() - start_time
+            sleep_duration = global_frequency - time_spent
+            if sleep_duration.total_seconds() > 0:
+                logger.info(f"Next sequential run in {sleep_duration}.")
+                await asyncio.sleep(sleep_duration.total_seconds())
+            else:
+                logger.info("Task execution took longer than frequency. Starting next run immediately.")
