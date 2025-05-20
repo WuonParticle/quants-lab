@@ -1,0 +1,38 @@
+prediction_models:
+  - name: "bitcoinenaitor_live_btc_usdt"
+    model_class: "models.prediction.bitcoinenaitor_model.BitcoinenaitorModel"
+    watched_files:
+      - "models/prediction/artifacts/scaler.pkl"  # Example path, replace with your actual path
+      - "models/prediction/artifacts/model.joblib" # Example path, replace with your actual path
+    candles_configs:
+      - connector: "binance"       # Replace with your desired connector
+        trading_pair: "BTC-USDT" # Replace with your desired trading pair
+        interval: "1m"
+        max_records: 350           # Ensure enough records for TA features and std/rolling windows
+    mqtt_broker: "localhost"
+    mqtt_port: 1883
+    mqtt_topic_prefix: "hbot/live_predictions"
+    mqtt_qos: 1
+    mqtt_retain: true
+    model_specific_config:
+      scaler_path: "models/prediction/artifacts/scaler.pkl"  # Example path, replace
+      model_path: "models/prediction/artifacts/model.joblib" # Example path, replace
+      prediction_interval_sec: 1.0  # How often to try and make a prediction
+      target_rolling_window: 100    # From BitcoinenaitorModel
+      target_std_window: 200        # From BitcoinenaitorModel
+
+  # You can add more model configurations here
+  # - name: "another_model_example"
+  #   model_class: "models.prediction.your_other_model.YourOtherModel"
+  #   watched_files:
+  #     - "models/prediction/artifacts/other_model.pkl"
+  #   candles_configs:
+  #     - connector: "kucoin"
+  #       trading_pair: "ETH-USDT"
+  #       interval: "5m"
+  #       max_records: 200
+  #   mqtt_broker: "localhost"
+  #   mqtt_port: 1883
+  #   mqtt_topic_prefix: "hbot/live_predictions"
+  #   model_specific_config:
+  #     # ... 
