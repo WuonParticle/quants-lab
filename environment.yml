@@ -35,3 +35,5 @@ dependencies:
       - pyarrow
       - motor>=3.3.2
       - tenacity
+      - pytest>=7.4.0
+      - watchdog==3.0.0

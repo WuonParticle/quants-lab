@@ -1,0 +1,46 @@
+# Global/common settings for all prediction services
+common_mqtt_config:
+  mqtt_broker: "localhost" # Or your MQTT broker IP/hostname
+  mqtt_port: 1883
+  mqtt_qos: 1
+  mqtt_retain: true
+
+default_prediction_interval: 1.0 # Default seconds between prediction attempts for each model
+
+# Define individual prediction services
+services:
+  btc_usdt_simple_predictor:
+    enabled: true
+    model_class: "services.prediction_models.example_prediction_model.ExamplePredictionModel"
+    mqtt_topic_prefix: "hbot/predictions" # Base prefix for this model's topics
+    prediction_interval: 0.5 # Override default interval for this specific model
+    candles_config:
+      - connector: "binance_perpetual"
+        trading_pair: "BTC-USDT"
+        interval: "1s"
+        max_records: 500 # Optional: BasePredictionModel defaults to 1000 if not set
+    watched_files:
+      - "services/prediction_models/example_prediction_model.py" # For hot-reloading if model code changes
+      - "models/btc_scaler.pkl"
+      - "models/btc_model.joblib"
+    config: # Model-specific configuration
+      scaler_path: "models/btc_scaler.pkl"
+      model_path: "models/btc_model.joblib"
+      some_other_param: 123
+
+  eth_usdt_other_predictor:
+    enabled: false # This service won't run
+    model_class: "services.prediction_models.another_model.AnotherModel" # Example, create this file if needed
+    mqtt_topic_prefix: "custom/price_forecasts"
+    candles_config:
+      - connector: "kucoin"
+        trading_pair: "ETH-USDT"
+        interval: "1m"
+        max_records: 200
+    watched_files:
+      - "services/prediction_models/another_model.py"
+    config:
+      feature_window: 50
+
+# To add more prediction services, copy the structure of btc_usdt_simple_predictor
+# or eth_usdt_other_predictor and modify accordingly. 
