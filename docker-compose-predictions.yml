@@ -1,0 +1,101 @@
+version: '3.8'
+
+services:
+  prediction-service:
+    image: hummingbot/quants-lab-predictions:latest # Will be built by Makefile or manually
+    build:
+      context: .
+      dockerfile: Dockerfile.predictions
+    container_name: quants_lab_prediction_service
+    volumes:
+      # Mount the entire project directory for easy development and access to models/configs
+      # Adjust if your models/configs are outside the PWD context in some deployment scenarios
+      - ${PWD:-.}:/quants-lab 
+    # Use host network to easily access local MQTT broker, or define a shared network
+    # if your MQTT broker is also a container.
+    network_mode: host 
+    # env_file:
+    #   - .env # If you have common environment variables like MQTT broker details
+    environment:
+      # Example: Override the default config path used in the Dockerfile CMD
+      # PREDICTION_CONFIG_PATH: "config/custom_predictions.yml"
+      # Define other necessary environment variables for your models here
+      PYTHONUNBUFFERED: 1
+      LOG_LEVEL: INFO # Example, you can make logging configurable
+      # MQTT_BROKER_HOST: "localhost" # If not using host network_mode and MQTT is external
+      # MQTT_BROKER_PORT: "1883"
+    command: >
+      conda run --no-capture-output -n quants-lab python3 run_prediction_service.py 
+      --config ${PREDICTION_CONFIG_PATH:-config/prediction_services.yml}
+    deploy:
+      restart_policy:
+        condition: on-failure # or "unless-stopped" or "always"
+        max_attempts: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  # VPN-enabled version of the prediction service
+  # This assumes you have a separate VPN container named 'vpn-container' (see main Makefile)
+  vpn-prediction-service:
+    image: hummingbot/quants-lab-predictions:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.predictions
+    container_name: quants_lab_vpn_prediction_service
+    volumes:
+      - ${PWD:-.}:/quants-lab
+    working_dir: /quants-lab
+    # Use the VPN container's network. 
+    # This means MQTT_BROKER_HOST should be the service name of your MQTT broker 
+    # as resolvable from within the VPN container's network, or localhost if it's port-forwarded.
+    network_mode: "container:vpn-container" 
+    depends_on:
+      # Add explicit dependency if your vpn-container is defined in this compose file or another one
+      # and needs to be up first. For network_mode: container:, the target container must exist.
+      - vpn-container # This is a placeholder; ensure 'vpn-container' is discoverable or running.
+    environment:
+      PYTHONUNBUFFERED: 1
+      LOG_LEVEL: INFO
+      # If MQTT is outside VPN and accessed via forwarded ports from vpn-container to host:
+      MQTT_BROKER_HOST: "localhost" # The vpn-container forwards this to the actual broker.
+      MQTT_BROKER_PORT: "1883"
+      # If MQTT is another container on the same VPN network as vpn-container:
+      # MQTT_BROKER_HOST: "name_of_mqtt_container_on_vpn_network"
+    command: >
+      conda run --no-capture-output -n quants-lab python3 run_prediction_service.py 
+      --config ${PREDICTION_CONFIG_PATH:-config/prediction_services.yml}
+    deploy:
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+# If your vpn-container is not managed externally (e.g. by the main Makefile's start-vpn)
+# you might need to define it here or ensure the network `hummingbot-vpn` is correctly set up.
+# This example assumes `vpn-container` is managed elsewhere and its network is joined.
+#
+# Example of a minimal vpn-container if you were to define it here (ensure it matches your setup):
+#   vpn-container:
+#     image: your/vpn-client-image 
+#     container_name: vpn-container
+#     cap_add:
+#       - NET_ADMIN
+#     devices:
+#       - /dev/net/tun:/dev/net/tun
+#     networks:
+#       - hummingbot-vpn # ensure this network is created
+#     # ... other vpn configurations (volumes for config, command, etc.)
+
+# If using a shared network for non-VPN service to talk to other containers (e.g. MQTT broker)
+# networks:
+#   hummingbot-vpn:
+#     external: true # If created by another compose file or manually
+#   # my_shared_network:
+#   #   driver: bridge

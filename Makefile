@@ -126,3 +126,30 @@ run-parallel:
 stop-parallel:
 	docker compose -p quants-lab-parallel -f tmp/docker-compose.worker-override.yml down
 	@rm -f tmp/docker-compose.worker-override.yml
+
+# --- Prediction Service Targets ---
+prediction_service_name ?= prediction-service
+
+# Build prediction service image
+build-prediction-service:
+	docker build -t hummingbot/quants-lab-predictions -f Dockerfile.predictions .
+
+# Run prediction service with specified config
+# Usage: make run-prediction-service [config=path/to/your_prediction_config.yml] [use_vpn=true]
+run-prediction-service:
+	@SERVICE_TO_USE=$$(if [ "$(use_vpn)" = "true" ]; then echo "vpn-$(prediction_service_name)"; else echo "$(prediction_service_name)"; fi); \
+	echo "Running $$SERVICE_TO_USE with config: $(PREDICTION_CONFIG)"; \
+	PREDICTION_CONFIG_PATH=$(PREDICTION_CONFIG) docker compose -f docker-compose-predictions.yml up $(if $(detached),-d,) $$SERVICE_TO_USE
+
+# Stop prediction service
+# Usage: make stop-prediction-service [use_vpn=true]
+stop-prediction-service:
+	@SERVICE_TO_USE=$$(if [ "$(use_vpn)" = "true" ]; then echo "vpn-$(prediction_service_name)"; else echo "$(prediction_service_name)"; fi); \
+	echo "Stopping $$SERVICE_TO_USE"; \
+	docker compose -f docker-compose-predictions.yml down
+
+# Get logs for the prediction service
+# Usage: make logs-prediction-service [use_vpn=true]
+logs-prediction-service:
+	@SERVICE_TO_USE=$$(if [ "$(use_vpn)" = "true" ]; then echo "vpn-$(prediction_service_name)"; else echo "$(prediction_service_name)"; fi); \
+	docker compose -f docker-compose-predictions.yml logs -f $$SERVICE_TO_USE
