@@ -4,6 +4,8 @@ import pandas as pd
 import time
 import logging
 from dataclasses import dataclass
+import os
+import yaml
 
 from core.services.timescale_client import TimescaleClient
 from core.services.mongodb_client import MongoClient
@@ -162,3 +164,29 @@ class TaskConfigHelper:
             backtest_window_step=self.config.get("backtest_window_step", None),
             backtest_window_size=self.config.get("backtest_window_size", None)
         )
+
+    @staticmethod
+    def load_config_file(config_path: str) -> Dict[str, Any]:
+        """Static method to load a YAML config file with fallback paths."""
+        if not os.path.exists(config_path):
+            # Try adding "config/" prefix if the original path doesn't exist
+            config_prefixed_path = os.path.join("config", config_path)
+            if os.path.exists(config_prefixed_path):
+                config_path = config_prefixed_path
+            else:
+                # Try adding .yml if extension is missing from prefixed path
+                with_yml_path = config_prefixed_path + ".yml"
+                if os.path.exists(with_yml_path):
+                    config_path = with_yml_path
+                else:
+                    # Try adding .yml to original path if that also failed
+                    original_with_yml = config_path + ".yml"
+                    if os.path.exists(original_with_yml):
+                        config_path = original_with_yml
+                    else:
+                        raise FileNotFoundError(
+                            f"Config file not found at {config_path}, {config_prefixed_path}, or {with_yml_path} or {original_with_yml}"
+                        )
+        
+        with open(config_path, 'r') as f:
+            return yaml.safe_load(f)
