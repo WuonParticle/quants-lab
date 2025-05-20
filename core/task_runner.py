@@ -38,7 +38,7 @@ class TaskRunner:
     def initialize_tasks(self) -> List[BaseTask]:
         """Initialize all enabled tasks from configuration"""
         tasks = []
-        common_config = BaseTask.get_common_config()
+        common_config = TaskConfigHelper.get_common_config()
         global_task_class_path = self.global_config.get("task_class")
         global_config_values = self.global_config.get("config", {})
 
