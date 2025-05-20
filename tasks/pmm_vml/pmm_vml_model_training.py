@@ -15,6 +15,7 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.impute import SimpleImputer
 
 from core.task_base import BaseTask
+from core.task_config_helpers import TaskConfigHelper
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -218,7 +219,7 @@ async def main():
         force=True
     )
     # Run from command line with: python -m tasks.pmm_vml.pmm_vml_model_training --config config/pmm_vml_model_training.yml
-    config = BaseTask.load_single_task_config()
+    config = TaskConfigHelper.load_single_task_config()
     task = PMMVMLModelTrainingTask("PMM VML Model Training", config)
     await task.run_once()
 

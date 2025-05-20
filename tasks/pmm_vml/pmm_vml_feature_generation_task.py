@@ -409,7 +409,7 @@ async def main():
         force=True
     )
     # Run from command line with: python -m tasks.pmm_vml.pmm_vml_feature_generation_task --config config/pmm_vml_feature_generation_task.yml
-    config = BaseTask.load_single_task_config()
+    config = TaskConfigHelper.load_single_task_config()
     task = PMMVMLFeatureGenerationTask("PMM VML Feature Generation", config)
     await task.run_once()
 
