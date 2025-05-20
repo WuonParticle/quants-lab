@@ -204,7 +204,7 @@ async def main():
         force=True
     )
     # Run from command line with: python -m tasks.backtesting.pmm_simple_backtesting_task --config config/pmm_simple_backtesting_task.yml
-    config = BaseTask.load_single_task_config()
+    config = TaskConfigHelper.load_single_task_config()
     task = PMMSimpleBacktestingTask("PMM Simple", None, config)
     await task.run_once()
 
