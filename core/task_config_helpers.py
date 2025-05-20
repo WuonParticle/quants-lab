@@ -190,3 +190,51 @@ class TaskConfigHelper:
         
         with open(config_path, 'r') as f:
             return yaml.safe_load(f)
+        
+    @staticmethod
+    def get_common_config() -> Dict[str, Any]:
+        """Get common configuration defaults from environment variables"""
+        return {
+            "timescale_config": {
+                "host": os.getenv("TIMESCALE_HOST", "localhost"),
+                "port": int(os.getenv("TIMESCALE_PORT", "5432")),
+                "user": os.getenv("TIMESCALE_USER", "admin"),
+                "password": os.getenv("TIMESCALE_PASSWORD", "admin"),
+                "database": os.getenv("TIMESCALE_DB", "timescaledb")
+            },
+            "postgres_config": {
+                "host": os.getenv("POSTGRES_HOST", "localhost"),
+                "port": int(os.getenv("POSTGRES_PORT", "5432")),
+                "user": os.getenv("POSTGRES_USER", "admin"),
+                "password": os.getenv("POSTGRES_PASSWORD", "admin"),
+                "database": os.getenv("POSTGRES_DB", "optimization_database")
+            },
+            "mongo_config": {
+                "uri": os.getenv("MONGO_URI", "mongodb://localhost:27017"),
+                "database": os.getenv("MONGO_DB", "quants_lab")
+            }
+        }
+        
+    @staticmethod
+    def load_single_task_config() -> Dict[str, Any]:
+        """
+        Parse command line arguments to load configuration from YAML file and merge with common config.
+        Useful for debugging a single task from the command line, and for giving LLM agents a way to run a task. 
+        
+        Returns:
+            Dict containing the merged configuration
+        """
+        import yaml
+        import argparse
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--config', type=str, required=True, help='Path to YAML config file')
+        args = parser.parse_args()
+        
+        with open(args.config, 'r') as f:
+            config_file = yaml.safe_load(f)
+        
+        task_config = next(iter(config_file.get("tasks").values())).get("config")
+        common_config = TaskConfigHelper.get_common_config()
+        
+        # Merge common config with task config, with task config taking precedence
+        return {**common_config, **task_config}
