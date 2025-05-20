@@ -259,7 +259,7 @@ async def main():
         force=True
     )
     # Run from command line with: python -m tasks.backtesting.dman_v3_label_generation_task --config config/dman_v3_label_generation_task.yml
-    config = BaseTask.load_single_task_config()
+    config = TaskConfigHelper.load_single_task_config()
     task = DManV3LabelGenerationTask("DManV3 Label Generation", None, config)
     await task.run_once()
 

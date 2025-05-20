@@ -188,7 +188,7 @@ class PMMDynamicBacktestingTask(BaseTask):
 
 
 async def main():
-    config = BaseTask.load_single_task_config()
+    config = TaskConfigHelper.load_single_task_config()
     task = PMMDynamicBacktestingTask("PMM Dynamic Backtesting", None, config)
     await task.execute()
 

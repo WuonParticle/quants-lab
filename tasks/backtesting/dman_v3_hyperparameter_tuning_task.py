@@ -230,7 +230,7 @@ async def main():
         force=True
     )
     # Run from command line with: python -m tasks.backtesting.dman_v3_hyperparameter_tuning_task --config config/dman_v3_hyperparameter_tuning_task.yml
-    config = BaseTask.load_single_task_config()
+    config = TaskConfigHelper.load_single_task_config()
     task = DManV3HyperparameterTuningTask("DManV3 Hyperparameter Tuning", None, config)
     await task.run_once()
 
