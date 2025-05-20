@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 import hummingbot
 
 from core.task_base import TaskOrchestrator, BaseTask
+from core.task_config_helpers import TaskConfigHelper
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -18,33 +19,11 @@ class TaskRunner:
     def __init__(self, config_path: str = "config/tasks.yml"):
         load_dotenv()
         # TODO: provide option to disable polling api utils class sys.modules['core.services.backend_api_client'] = None
-        self.config_path = config_path
         self.orchestrator = TaskOrchestrator()
-        self.global_config = self.load_config()
+        self.global_config = TaskConfigHelper.load_config_file(config_path)
         self.tasks_config = self.global_config.get("tasks", {})
         self.run_sequentially = self.global_config.get("run_sequentially", False)
         self.global_frequency_hours = self.global_config.get("frequency_hours")
-
-    def load_config(self) -> Dict[str, Any]:
-        """Load task configuration from YAML file"""
-        if os.path.exists(self.config_path):
-            with open(self.config_path, 'r') as f:
-                return yaml.safe_load(f)
-        
-        # Try adding "config/" prefix if the original path doesn't exist
-        config_prefixed_path = os.path.join("config", self.config_path)
-        if os.path.exists(config_prefixed_path):
-            with open(config_prefixed_path, 'r') as f:
-                return yaml.safe_load(f)
-           
-        # TODO: only check if extension is missing
-        with_yml_path = config_prefixed_path + ".yml"
-        if os.path.exists(with_yml_path):
-            with open(with_yml_path, 'r') as f:
-                return yaml.safe_load(f)
-        
-        raise FileNotFoundError(f"Config file not found at {self.config_path} or {config_prefixed_path} or {with_yml_path}")
-    
 
     def import_task_class(self, task_class_path: str) -> type:
         """Dynamically import task class from string path"""
